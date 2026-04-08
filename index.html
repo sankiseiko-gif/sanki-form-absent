@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<!-- ドキュメントタイプをhtml5に指定 -->
+
+<html lang="ja">
+<!-- 言語を日本語に指定 -->
+
+<!-- head デザイン等の担当箇所 -->
+<head>
+  <meta charset="utf-8">
+  <!-- 文字コードをutf-8に指定(文字化け対策) -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- ページの表示設定。横幅を画面に合わせる,最初の表示倍率を１倍(100％)にする -->
+  <title>欠勤・休暇届申請</title>
+  <!-- タブ/上部のバーに表示されるタイトル -->
+
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+  <!-- Bulma CSS（jsDelivrからデザインパッケージ[Bulma]を読み込み -->
+  <style>
+    .container { max-width: 640px; margin-top: 24px; margin-bottom: 24px;}
+    .user-info { background: #f5f5f5; padding: 10px; border-radius: 4px; margin-bottom: 20px; font-size: 0.9rem; }
+  </style>
+</head>
+
+<!-- body 入力部分の担当箇所 -->
+<body>
+  <section class="section">
+    <div class="container">
+    <!-- 外枠と余白の設定 -->
+      <h1 class="title is-4">欠勤・休暇届 申請フォーム</h1>
+      <!-- 見出しの設定　サイズを4に指定 -->
+      <div id="userInfoDisplay" class="user-info">
+        ユーザー情報を取得中...
+      </div>
+
+      <!-- 入力内容のグループ化 -->
+      <form id="absenceForm" novalidate>
+        <div class="field">
+          <label class="label" for="type">種別</label>
+          <!-- 入力内容の指示欄　ここでは「種別」 -->
+
+          <!-- プルダウン式の入力ボックス -->
+          <div class="control">
+            <div class="select is-fullwidth">
+              <select id="type" name="type" required>
+                <!-- 選択肢 -->
+                <option value="">選択してください</option>
+                <option value="遅刻">遅刻</option>
+                <option value="早退">早退</option>
+                <option value="欠勤">欠勤</option>
+                <option value="外出">外出</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="label" for="category">区分</label>
+
+          <div class="control">
+            <div class="select is-fullwidth">
+              <select id="category" name="category">
+                <option value="">選択してください</option>
+                <option value="有給">有給</option>
+                <option value="AM半休">AM半休</option>
+                <option value="PM半休">PM半休</option>
+                <option value="忌引">忌引</option>
+                <option value="結婚">結婚</option>
+                <option value="振替休日">振替休日</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- 日付の選択、環境ごとのデフォルトのカレンダーから選択式 -->
+        <div class="field" id="compDateField" style="display: none;">
+          <label class="label" for="compDate">振替出勤日 <span class="has-text-danger is-size-7">※必須</span></label>
+          <div class="control">
+            <input class="input" type="date" id="compDate" name="compDate">
+          </div>
+        </div>
+
+        <!-- 対象日　チェックボックス「期間で申請」の設置と開始日のカレンダー（date形式）入力 -->
+        <div class="field">
+          <label class="label">対象日</label>
+          <div class="control mb-2">
+            <label class="checkbox">
+              <input type="checkbox" id="isPeriod">
+              <strong>期間で申請</strong>
+            </label>
+          </div>
+          <div class="field is-grouped">
+            <div class="control is-expanded">
+              <input class="input" type="date" id="startDate" name="startDate" required>
+            </div>
+            <!-- チェックされている場合のみ表示、「～」「終了日の入力」の設置 -->
+            <div class="control" id="dateSeparator" style="display: none; align-self: center;">
+              <span>〜</span>
+            </div>
+            <div class="control is-expanded" id="endDateArea" style="display: none;">
+              <input class="input" type="date" id="endDate" name="endDate">
+            </div>
+          </div>
+        </div>
+
+        <!-- 時間　自動で8：30～17：30を入力するチェックボックス「終日」と開始・終了時間のドラムロール(time形式)入力設置 -->
+        <div class="field">
+          <label class="label">時間</label>
+          <div class="control mb-2">
+            <label class="checkbox">
+              <input type="checkbox" id="allDay" name="allDay">
+              <strong>終日 (8:30〜17:30を自動入力)</strong>
+            </label>
+          </div>
+          <div class="field is-grouped">
+            <div class="control is-expanded">
+              <input class="input" type="time" id="startTime" name="startTime">
+            </div>
+            <div class="control" style="align-self: center;"><span>〜</span></div>
+            <div class="control is-expanded">
+              <input class="input" type="time" id="endTime" name="endTime">
+            </div>
+          </div>
+        </div>
+
+        <!-- 理由欄（textareaによる自由記入）の設置 -->
+        <div class="field">
+          <label class="label" for="reason">理由</label>
+          <div class="control">
+            <textarea class="textarea" id="reason" name="reason" rows="3"></textarea>
+          </div>
+        </div>
+
+        <!-- submit（フォーム送信）用のボタン。押されるとscriputのsubmit formの処理が開始 -->
+        <div class="field mt-5">
+          <div class="control">
+            <button class="button is-link is-fullwidth" type="submit" id="submitBtn">申請する</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </section>
+
+<!-- WOFF のスクリプト読み込み、適宜更新 now ver.:2026.04.07-->
+  <script charset="utf-8" src="https://static.worksmobile.net/static/wm/woff/edge/3.7.1/sdk.js"></script>
+
+  <script>
+    // WOFF 初期化フラグ
+    let woffReady = false;
+    let userProfile = { userId: "", displayName: "" };
+
+    window.addEventListener('load', () => {
+      if (typeof woff !== 'undefined' && woff.init) {
+        // 下でWOFF IDを指定、変更あれば修正すること
+        woff.init({ woffId: "W_kh178qQ_uGfLxefRwo4w" })
+          .then(() => {
+            woffReady = true;
+            return woff.getProfile();
+          })
+          .then(profile => {
+            userProfile = profile;
+            document.getElementById('userInfoDisplay').innerText = `申請者: ${profile.displayName} (${profile.userId})`;
+          })
+          //error時の処理、メッセージ表示
+          .catch(err => {
+            console.error("WOFF Error:", err);
+           document.getElementById('userInfoDisplay').innerText = "取得失敗: " + JSON.stringify(err);
+          });
+      }
+    });
+
+    // 「期間で申請」チェック時の表示切り替え
+    document.getElementById('isPeriod').addEventListener('change', function() {
+      const isChecked = this.checked;
+      document.getElementById('dateSeparator').style.display = isChecked ? 'block' : 'none';
+      document.getElementById('endDateArea').style.display = isChecked ? 'block' : 'none';
+      
+      // チェックが外れたら終了日の入力をクリアする
+      if (!isChecked) {
+        document.getElementById('endDate').value = "";
+      }
+    });
+
+    // 「終日」チェック時の挙動
+    document.getElementById('allDay').addEventListener('change', function() {
+      const startTimeInput = document.getElementById('startTime');
+      const endTimeInput = document.getElementById('endTime');
+      
+      if (this.checked) {
+        startTimeInput.value = "08:30";
+        endTimeInput.value = "17:30";
+      } else {
+        startTimeInput.value = "";
+        endTimeInput.value = "";
+      }
+    });
+
+    // 区分変更（振替休日）の挙動、振替指定日入力欄を表示
+    document.getElementById('category').addEventListener('change', function() {
+      document.getElementById('compDateField').style.display = (this.value === '振替休日') ? 'block' : 'none';
+    });
+
+    document.getElementById('absenceForm').addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      submitForm();
+    });
+
+    function validate(data) {
+      if (!data.type) {
+        alert("種別を選択してください。");
+        return false;
+      } 
+      if (!data.category) {
+        alert("区分を選択してください。");
+        return false;
+      }
+      if (!data.startDate) {
+        alert("対象日を入力してください。");
+        return false;
+      }
+      // 期間申請の場合のみ、終了日の有無と前後関係をチェック
+      if (data.isPeriod) {
+        if (!data.endDate) {
+          alert("対象日の終了日を入力してください。");
+          return false;
+        }
+        if (data.startDate > data.endDate) {
+          alert("終了日は開始日以降の日付を指定してください。");
+          return false;
+        }
+      }
+      if (data.category === '振替休日' && !data.compDate) {
+        alert("振替出勤日を入力してください。");
+        return false;
+      }
+      return true;
+    }
+
+    function submitForm() {
+      const isPeriodChecked = document.getElementById('isPeriod').checked;
+      const startDateValue = document.getElementById('startDate').value;
+      
+      // 【重要】期間申請がOFFの場合は、開始日を終了日にもコピーして設定する
+      const endDateValue = isPeriodChecked ? document.getElementById('endDate').value : startDateValue;
+
+      // 区分を取得
+      const categoryValue = document.getElementById('category').value;
+      // 振替日の値を取得（JavaScriptで振替休日以外なら空白になる）
+      let compDateValue = document.getElementById('compDate').value;
+
+      const data = {
+        userId: userProfile.userId,
+        userName: userProfile.displayName,
+        type: document.getElementById('type').value,
+        category: document.getElementById('category').value,
+        compDate: document.getElementById('compDate').value,
+        
+        isPeriod: isPeriodChecked, // 判定用に一応送る
+        startDate: startDateValue,
+        endDate: endDateValue,     // 1日のみの申請でも、ここには開始日と同じ日付が入る
+        
+        allDay: document.getElementById('allDay').checked,
+        startTime: document.getElementById('startTime').value,
+        endTime: document.getElementById('endTime').value,
+        reason: document.getElementById('reason').value
+      };
+
+      if (!validate(data)) return;
+
+       const btn = document.getElementById('submitBtn');
+       btn.disabled = true; // 二重送信防止
+       btn.innerText = "送信中...";
+
+        // GASのウェブアプリURLを指定
+        const gasUrl = "https://script.google.com/macros/s/AKfycbz2_fHa_RIfgUo2tsl38mJtTs-x93N8AUUvaYlb4qlK1HQa8xY9yKb_RNZ2r2zlVyeq/exec";
+
+        fetch(gasUrl, {
+            method: "POST",
+            mode: "no-cors", // GASへの送信エラー回避
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(data)
+        })
+         .then(() => {
+            alert("申請が完了しました。");
+            if (woffReady && woff.closeWindow) woff.closeWindow();
+        })
+          .catch(err => {
+            console.error(err);
+             alert("エラーが発生しました。");
+             btn.disabled = false;
+            btn.innerText = "申請する";
+        });     
+    }
+  </script>
+</body>
+</html>
