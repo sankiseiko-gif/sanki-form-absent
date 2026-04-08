@@ -31,6 +31,15 @@
       <div id="userInfoDisplay" class="user-info">
         ユーザー情報を取得中...
       </div>
+
+        <!-- 手入力用の名前欄（最初は隠しておく） -->
+        <div id="manualNameField" class="field" style="display: none;">
+         <label class="label">お名前 </label>
+             <div class="control">
+                <input class="input" type="text" id="manualName" placeholder="漢字で氏名を入力（例：三基太郎）">
+            </div>
+        </div>
+
       <p class="help is-danger has-text-weight-bold mb-4">
         ※緊急時は、先に電話での連絡をお願いします
       </p>
@@ -166,7 +175,7 @@
           //error時の処理、メッセージ表示と名前入力欄の追加
           .catch(err => {
             console.error("WOFF Error:", err);
-           document.getElementById('userInfoDisplay').innerText = "漢字で名前を入力してください(空白は入れないでください　例：三基太郎): ";
+           document.getElementById('userInfoDisplay').innerText = "読取失敗";
 
            const manualField = document.getElementById('manualNameField');
              if (manualField) {
