@@ -163,11 +163,18 @@
             userProfile = profile;
             document.getElementById('userInfoDisplay').innerText = `申請者: ${profile.displayName} `;
           })
-          //error時の処理、メッセージ表示
+          //error時の処理、メッセージ表示と名前入力欄の追加
           .catch(err => {
             console.error("WOFF Error:", err);
-           document.getElementById('userInfoDisplay').innerText = "取得失敗: " + JSON.stringify(err);
-          });
+           document.getElementById('userInfoDisplay').innerText = "漢字で名前を入力してください(空白は入れないでください　例：三基太郎): ";
+
+           const manualField = document.getElementById('manualNameField');
+             if (manualField) {
+                manualField.style.display = 'block';
+             }
+            
+        
+        });
       }
     });
 
@@ -250,9 +257,18 @@
       // 振替日の値を取得（JavaScriptで振替休日以外なら空白になる）
       let compDateValue = document.getElementById('compDate').value;
 
+      //名前の取得（ユーザー名が取得できなかった場合は手入力から読み込み。未入力なら警告）
+        const finalUserName = userProfile.displayName || document.getElementById('manualName').value;
+
+        if (!finalUserName) {
+         alert("お名前を入力してください。");
+        return;
+        }
+
+      //データを送る部分
       const data = {
         userId: userProfile.userId,
-        userName: userProfile.displayName,
+        userName: finalUserName,
         type: document.getElementById('type').value,
         category: document.getElementById('category').value,
         compDate: document.getElementById('compDate').value,
