@@ -1,168 +1,157 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>承認手続き</title>
-  <script charset="utf-8" src="https://static.worksmobile.net/static/wm/woff/edge/sdk.js"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>グループ承認リスト</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+  <script charset="utf-8" src="https://static.worksmobile.net/static/wm/woff/edge/3.7.1/sdk.js"></script>
   <style>
-    body { font-family: sans-serif; background-color: #f4f5f7; color: #333; margin: 0; padding: 20px; }
-    .container { max-width: 400px; margin: 0 auto; background: #fff; padding: 25px 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
-    h2 { text-align: center; color: #00B900; margin-top: 0; }
-    .info-box { background: #f9f9f9; padding: 15px; border-radius: 8px; margin-bottom: 20px; font-size: 14px; display: none; }
-    .info-box p { margin: 8px 0; border-bottom: 1px dashed #ccc; padding-bottom: 5px; }
-    .user-box { text-align: center; font-weight: bold; font-size: 18px; color: #333; margin-bottom: 20px; padding: 10px; border: 2px solid #00B900; border-radius: 8px; display: none; }
-    .user-label { font-size: 12px; color: #666; font-weight: normal; }
-    .btn { display: none; width: 100%; background: #00B900; color: #fff; border: none; padding: 15px; font-size: 16px; font-weight: bold; border-radius: 8px; cursor: pointer; transition: 0.3s; }
-    .btn:disabled { background: #ccc; cursor: not-allowed; }
-    #status { text-align: center; margin-top: 15px; font-weight: bold; font-size: 14px; color: #666; word-break: break-all; }
+    body { background-color: #f4f5f7; }
+    .container { max-width: 640px; margin-top: 20px; margin-bottom: 20px; padding: 0 15px;}
+    .user-info { background: #f0fdf4; border-left: 4px solid #00B900; padding: 12px; border-radius: 4px; margin-bottom: 20px; font-weight: bold; color: #333; font-size: 0.9rem;}
+    .card { border-radius: 8px; margin-bottom: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); overflow: hidden; border: 1px solid #eee; }
+    .card-header-title { background-color: #fff; border-bottom: 1px solid #f5f5f5; color: #333; font-size: 1rem;}
+    .content p { margin-bottom: 0.5em !important; font-size: 0.9rem;}
+    .empty-message { text-align: center; padding: 40px 20px; color: #888; background: #fff; border-radius: 8px; font-weight: bold;}
+    #statusMessage { text-align: center; margin-bottom: 15px; font-size: 0.9rem; font-weight: bold; color: #666; }
   </style>
 </head>
 <body>
   <div class="container">
-    <h2>承認手続き</h2>
-    <div id="status">⏳ LINE WORKSと通信中...</div>
+    <h1 class="title is-5 has-text-centered mt-2">未承認リスト</h1>
+    <div id="statusMessage">⏳ WOFFを起動中...</div>
 
-    <div class="user-box" id="userBox">
-      <div class="user-label">現在の担当承認者</div>
-      <span id="approverNameDisplay"></span> さん
-    </div>
+    <div id="userInfoDisplay" class="user-info" style="display: none;"></div>
 
-    <div class="info-box" id="infoBox">
-      <p><strong>申請者:</strong> <span id="reqName"></span></p>
-      <p><strong>種別:</strong> <span id="reqType"></span></p>
-      <p><strong>区分:</strong> <span id="reqCategory"></span></p>
-      <p><strong>期間:</strong> <span id="reqPeriod"></span></p>
-    </div>
-
-    <button id="approveBtn" class="btn" onclick="doApprove()">この内容で承認する</button>
+    <div id="approvalList"></div>
   </div>
 
   <script>
-// ⚠️ あなたのIDとURLに書き換えてください
-    const WOFF_ID = "fwks1vLA5ED1cQGHnGkpnQ";
+    // ⚠️ あなたのWOFF IDとGAS URLに書き換えてください
+    const WOFF_ID = "fwks1vLA5ED1cQGHnGkpnQ"; 
     const GAS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbz2_fHa_RIfgUo2tsl38mJtTs-x93N8AUUvaYlb4qlK1HQa8xY9yKb_RNZ2r2zlVyeq/exec";
 
-    let globalRequestId = "";
     let globalApproverName = "";
-    let globalApproverId = "";
 
-   window.onload = function() {
-      const currentUrl = window.location.href;
-      const urlParams = new URLSearchParams(window.location.search);
-      
-      // パターン1：普通に id があるか探す
-      globalRequestId = urlParams.get('id');
+    window.addEventListener('load', () => {
+      // 💡 URLの解析は一切行いません！
 
-      // 💡 パターン2：LINE WORKS仕様！ woff.state の暗号箱の中を探す
-      if (!globalRequestId) {
-        const woffState = urlParams.get('woff.state');
-        if (woffState) {
-          // 暗号（%3Fなど）を元の文字（?など）に翻訳する
-          const decodedState = decodeURIComponent(woffState);
-          // 翻訳した文字から、改めて id を探す
-          const stateParams = new URLSearchParams(decodedState.replace('?', ''));
-          globalRequestId = stateParams.get('id');
-        }
+      if (typeof woff !== 'undefined' && woff.init) {
+        woff.init({ woffId: WOFF_ID })
+          .then(() => woff.getProfile())
+          .then(profile => {
+            globalApproverName = profile.displayName;
+            document.getElementById('userInfoDisplay').innerText = `ログイン中: ${globalApproverName}`;
+            document.getElementById('userInfoDisplay').style.display = "block";
+            
+            showStatus("⏳ 未承認データを取得中...");
+            fetchAllPendingApprovals(); // GASに未承認リストを要求
+          })
+          .catch(err => {
+            showStatus("❌ ユーザー情報の取得に失敗しました", "red");
+          });
       }
+    });
 
-      // パターン3：最終手段（暗号化されたままの文字から無理やり数字を引っこ抜く）
-      if (!globalRequestId) {
-        const match = currentUrl.match(/id(?:=|%3D)([0-9]+)/);
-        if (match) {
-          globalRequestId = match[1];
+    // 💡 GASから「全員の未承認リスト」を取得
+    function fetchAllPendingApprovals() {
+      fetch(GAS_WEBAPP_URL, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain" },
+        body: JSON.stringify({ type: "woff_fetch_all_pending" })
+      })
+      .then(res => res.json())
+      .then(result => {
+        if (result.success) {
+          renderList(result.data);
+        } else {
+          showStatus("❌ エラー: " + result.error, "red");
         }
-      }
+      })
+      .catch(err => showStatus("❌ 通信エラー", "red"));
+    }
 
-      // それでもダメな場合のエラー表示
-      if (!globalRequestId) {
-        updateStatus("❌ エラー: ID消失\n現在のURL:\n" + currentUrl, "red");
+    // 💡 取得したリストを画面に表示
+    function renderList(items) {
+      const listContainer = document.getElementById('approvalList');
+      listContainer.innerHTML = ""; 
+      showStatus(""); 
+
+      if (items.length === 0) {
+        listContainer.innerHTML = `<div class="empty-message">🎉 現在、未承認の申請はありません。</div>`;
         return;
       }
 
-      woff.init({ woffId: WOFF_ID })
-        .then(() => {
-          updateStatus("⏳ プロフィール取得中...");
-          return woff.getProfile();
-        })
-        .then((profile) => {
-          globalApproverName = profile.displayName;
-          globalApproverId = profile.userId;
-          document.getElementById('approverNameDisplay').innerText = globalApproverName;
-          
-          updateStatus("⏳ 申請データを取得中...");
-          fetchApplicationData(); 
-        })
-        .catch((err) => {
-          updateStatus("❌ 認証エラー: " + err.message, "red");
-        });
-    };
-
-    function fetchApplicationData() {
-      const payload = { type: "woff_fetch_details", id: globalRequestId };
-
-      fetch(GAS_WEBAPP_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify(payload)
-      })
-      .then(response => response.json())
-      .then(data => {
-        if (data.success) {
-          document.getElementById('reqName').innerText = data.data.requester;
-          document.getElementById('reqType').innerText = data.data.type;
-          document.getElementById('reqCategory').innerText = data.data.category;
-          document.getElementById('reqPeriod').innerText = data.data.period;
-          
-          document.getElementById('userBox').style.display = "block";
-          document.getElementById('infoBox').style.display = "block";
-          document.getElementById('approveBtn').style.display = "block";
-          updateStatus(""); 
-        } else {
-          updateStatus("❌ 取得エラー: " + data.error, "red");
-        }
-      })
-      .catch(err => updateStatus("❌ 通信エラー: " + err.message, "red"));
-    }
-
-    function doApprove() {
-      const btn = document.getElementById('approveBtn');
-      btn.disabled = true;
-      btn.innerText = "処理中...";
-      updateStatus("⏳ 承認を記録しています...");
-
-      const payload = {
-        type: "woff_approve",
-        id: globalRequestId,
-        approverName: globalApproverName,
-        approverId: globalApproverId
-      };
-
-      fetch(GAS_WEBAPP_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify(payload)
-      })
-      .then(response => response.json())
-      .then(data => {
-        if (data.success) {
-          updateStatus("✅ 承認完了！自動で閉じます。", "#00B900");
-          setTimeout(() => { woff.closeWindow(); }, 1500);
-        } else {
-          updateStatus("❌ 保存エラー: " + data.error, "red");
-          btn.disabled = false;
-          btn.innerText = "もう一度やり直す";
-        }
-      })
-      .catch(err => {
-        updateStatus("❌ 保存通信エラー: " + err.message, "red");
-        btn.disabled = false;
-        btn.innerText = "もう一度やり直す";
+      items.forEach(item => {
+        const cardHtml = `
+          <div class="card" id="card-${item.id}">
+            <header class="card-header">
+              <p class="card-header-title">👤 ${item.requester} さんの申請</p>
+            </header>
+            <div class="card-content py-3">
+              <div class="content">
+                <p><strong>種別:</strong> ${item.type}</p>
+                <p><strong>区分:</strong> ${item.category}</p>
+                <p><strong>期間:</strong> ${item.period}</p>
+              </div>
+            </div>
+            <footer class="card-footer">
+              <a href="#" class="card-footer-item has-text-success has-text-weight-bold" onclick="approveRequest('${item.id}'); return false;" id="btn-${item.id}">承認する</a>
+            </footer>
+          </div>
+        `;
+        listContainer.insertAdjacentHTML('beforeend', cardHtml);
       });
     }
 
-    function updateStatus(text, color = "#666") {
-      const el = document.getElementById('status');
+    // 💡 画面内の承認ボタンを押した時（シートの管理用IDをGASに送る）
+    function approveRequest(requestId) {
+      const btn = document.getElementById(`btn-${requestId}`);
+      btn.innerText = "⏳ 処理中...";
+      btn.style.pointerEvents = "none";
+      btn.classList.remove('has-text-success');
+      btn.classList.add('has-text-grey');
+
+      const payload = {
+        type: "woff_approve",
+        id: requestId, // 画面上で選択したシートの管理用ID
+        approverName: globalApproverName // 開いている人の名前
+      };
+
+      fetch(GAS_WEBAPP_URL, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain" },
+        body: JSON.stringify(payload)
+      })
+      .then(res => res.json())
+      .then(result => {
+        if (result.success) {
+          btn.innerText = "✅ 承認完了！";
+          btn.classList.add('has-text-info');
+          setTimeout(() => {
+            document.getElementById(`card-${requestId}`).style.display = "none";
+            // もしリストが空になったらメッセージを表示
+            if (document.querySelectorAll('.card[style*="display: none"]').length === document.querySelectorAll('.card').length) {
+              document.getElementById('approvalList').innerHTML = `<div class="empty-message">🎉 すべての承認が完了しました！</div>`;
+              setTimeout(() => { if(woff.closeWindow) woff.closeWindow(); }, 1500);
+            }
+          }, 1000);
+        } else {
+          alert("エラー: " + result.error);
+          btn.innerText = "承認する";
+          btn.style.pointerEvents = "auto";
+        }
+      })
+      .catch(err => {
+        alert("通信エラーが発生しました。");
+        btn.innerText = "承認する";
+        btn.style.pointerEvents = "auto";
+      });
+    }
+
+    function showStatus(text, color = "#666") {
+      const el = document.getElementById('statusMessage');
       el.innerText = text;
       el.style.color = color;
     }
