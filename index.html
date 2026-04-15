@@ -1,74 +1,55 @@
 <!DOCTYPE html>
-<!-- ドキュメントタイプをhtml5に指定 -->
-
 <html lang="ja">
-<!-- 言語を日本語に指定 -->
-
-<!-- head デザイン等の担当箇所 -->
 <head>
   <meta charset="utf-8">
-  <!-- 文字コードをutf-8に指定(文字化け対策) -->
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <!-- ページの表示設定。横幅を画面に合わせる,最初の表示倍率を１倍(100％)にする -->
   <title>欠勤・休暇届申請</title>
-  <!-- タブ/上部のバーに表示されるタイトル -->
-
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
-  <!-- Bulma CSS（jsDelivrからデザインパッケージ[Bulma]を読み込み -->
   <style>
     .container { max-width: 640px; margin-top: 24px; margin-bottom: 24px;}
     .user-info { background: #f5f5f5; padding: 10px; border-radius: 4px; margin-bottom: 20px; font-size: 0.9rem; }
   </style>
 </head>
-
-<!-- body 入力部分の担当箇所 -->
 <body>
   <section class="section">
     <div class="container">
-    <!-- 外枠と余白の設定 -->
       <h1 class="title is-4">欠勤・休暇届 申請フォーム</h1>
-      <!-- 見出しの設定　サイズを4に指定 -->
+      
       <div id="userInfoDisplay" class="user-info">
         ユーザー情報を取得中...
       </div>
 
-        <!-- 手入力用の名前欄（最初は隠しておく） -->
-        <div id="manualNameField" class="field" style="display: none;">
+      <div id="manualNameField" class="field" style="display: none;">
          <label class="label">お名前 </label>
              <div class="control">
                 <input class="input" type="text" id="manualName" placeholder="漢字で氏名を入力（例：三基太郎）">
             </div>
-        </div>
+      </div>
 
       <p class="help is-danger has-text-weight-bold mb-4">
-        ※緊急時は、先に電話での連絡をお願いします
+        ※緊急時は、先に電話での連絡をお願いします<br>
         ※上長の許可を得て申請してください
       </p>
 
-      <!-- 入力内容のグループ化 -->
       <form id="absenceForm" novalidate>
         <div class="field">
           <label class="label" for="type">種別</label>
-          <!-- 入力内容の指示欄　ここでは「種別」 -->
-
-          <!-- プルダウン式の入力ボックス -->
           <div class="control">
             <div class="select is-fullwidth">
               <select id="type" name="type" required>
-                <!-- 選択肢 -->
                 <option value="">選択してください</option>
                 <option value="遅刻">遅刻</option>
                 <option value="早退">早退</option>
                 <option value="欠勤">欠勤</option>
                 <option value="外出">外出</option>
+                <option value="取り消し">取り消し</option>
               </select>
             </div>
           </div>
         </div>
 
-        <div class="field">
+        <div class="field" id="categoryField">
           <label class="label" for="category">区分</label>
-
           <div class="control">
             <div class="select is-fullwidth">
               <select id="category" name="category">
@@ -79,12 +60,12 @@
                 <option value="忌引">忌引</option>
                 <option value="結婚">結婚</option>
                 <option value="振替休日">振替休日</option>
+                <option value="欠勤">欠勤</option>
               </select>
             </div>
           </div>
         </div>
 
-        <!-- 日付の選択、環境ごとのデフォルトのカレンダーから選択式 -->
         <div class="field" id="compDateField" style="display: none;">
           <label class="label" for="compDate">振替出勤日 <span class="has-text-danger is-size-7">※必須</span></label>
           <div class="control">
@@ -92,7 +73,6 @@
           </div>
         </div>
 
-        <!-- 対象日　チェックボックス「期間で申請」の設置と開始日のカレンダー（date形式）入力 -->
         <div class="field">
           <label class="label">対象日</label>
           <div class="control mb-2">
@@ -105,7 +85,6 @@
             <div class="control is-expanded">
               <input class="input" type="date" id="startDate" name="startDate" required>
             </div>
-            <!-- チェックされている場合のみ表示、「～」「終了日の入力」の設置 -->
             <div class="control" id="dateSeparator" style="display: none; align-self: center;">
               <span>〜</span>
             </div>
@@ -115,8 +94,7 @@
           </div>
         </div>
 
-        <!-- 時間　自動で8：30～17：30を入力するチェックボックス「終日」と開始・終了時間のドラムロール(time形式)入力設置 -->
-        <div class="field">
+        <div class="field" id="timeField">
           <label class="label">時間</label>
           <div class="control mb-2">
             <label class="checkbox">
@@ -135,15 +113,22 @@
           </div>
         </div>
 
-        <!-- 理由欄（textareaによる自由記入）の設置 -->
-        <div class="field">
+        <div class="field" id="reasonField">
           <label class="label" for="reason">理由</label>
           <div class="control">
             <textarea class="textarea" id="reason" name="reason" rows="3"></textarea>
           </div>
         </div>
 
-        <!-- submit（フォーム送信）用のボタン。押されるとscriputのsubmit formの処理が開始 -->
+        <div id="cancelCandidatesArea" class="box" style="display: none; background-color: #fff5f5; border: 1px solid #f14668;">
+          <h3 class="title is-6 has-text-danger">取り消す申請を選択してください</h3>
+          <div id="candidatesList" class="control mb-4">
+            </div>
+          <button type="button" class="button is-danger is-fullwidth" id="executeCancelBtn">
+            選択した申請を取り消す
+          </button>
+        </div>
+
         <div class="field mt-5">
           <div class="control">
             <button class="button is-link is-fullwidth" type="submit" id="submitBtn">申請する</button>
@@ -153,17 +138,14 @@
     </div>
   </section>
 
-<!-- WOFF のスクリプト読み込み、適宜更新 now ver.:2026.04.07-->
   <script charset="utf-8" src="https://static.worksmobile.net/static/wm/woff/edge/3.7.1/sdk.js"></script>
 
   <script>
-    // WOFF 初期化フラグ
     let woffReady = false;
     let userProfile = { userId: "", displayName: "" };
 
     window.addEventListener('load', () => {
       if (typeof woff !== 'undefined' && woff.init) {
-        // 下でWOFF IDを指定、変更あれば修正すること
         woff.init({ woffId: "W_kh178qQ_uGfLxefRwo4w" })
           .then(() => {
             woffReady = true;
@@ -173,38 +155,80 @@
             userProfile = profile;
             document.getElementById('userInfoDisplay').innerText = `申請者: ${profile.displayName} `;
           })
-          //error時の処理、メッセージ表示と名前入力欄の追加
           .catch(err => {
             console.error("WOFF Error:", err);
-           document.getElementById('userInfoDisplay').innerText = "読取失敗";
-
-           const manualField = document.getElementById('manualNameField');
-             if (manualField) {
-                manualField.style.display = 'block';
-             }
-            
-        
+            document.getElementById('userInfoDisplay').innerText = "読取失敗";
+            const manualField = document.getElementById('manualNameField');
+            if (manualField) {
+              manualField.style.display = 'block';
+            }
         });
       }
     });
 
-    // 「期間で申請」チェック時の表示切り替え
+    // ==========================================
+    // UI表示切り替え ＆ 時刻自動入力（種別変更）
+    // ==========================================
+    document.getElementById('type').addEventListener('change', function() {
+      const selectedType = this.value;
+      const isCancel = (selectedType === '取り消し');
+      
+      const displayStyle = isCancel ? 'none' : 'block';
+      document.getElementById('categoryField').style.display = displayStyle;
+      document.getElementById('timeField').style.display = displayStyle;
+      document.getElementById('reasonField').style.display = displayStyle;
+      document.getElementById('compDateField').style.display = 'none';
+
+      const submitBtn = document.getElementById('submitBtn');
+      const cancelArea = document.getElementById('cancelCandidatesArea');
+      
+      const startTimeInput = document.getElementById('startTime');
+      const endTimeInput = document.getElementById('endTime');
+
+      if (isCancel) {
+        submitBtn.innerText = "取り消し候補を検索";
+        submitBtn.classList.replace('is-link', 'is-warning');
+        cancelArea.style.display = 'none';
+      } else {
+        submitBtn.innerText = "申請する";
+        submitBtn.classList.replace('is-warning', 'is-link');
+        cancelArea.style.display = 'none';
+        
+        // 遅刻・早退の自動入力
+        if (selectedType === '遅刻') {
+          startTimeInput.value = "08:30";
+        } else if (selectedType === '早退') {
+          endTimeInput.value = "17:30";
+        }
+
+        if (document.getElementById('category').value === '振替休日') {
+          document.getElementById('compDateField').style.display = 'block';
+        }
+      }
+    });
+
+    // ==========================================
+    // 区分変更時の挙動
+    // ==========================================
+    document.getElementById('category').addEventListener('change', function() {
+      document.getElementById('compDateField').style.display = (this.value === '振替休日') ? 'block' : 'none';
+    });
+
+    // ==========================================
+    // その他UI挙動
+    // ==========================================
     document.getElementById('isPeriod').addEventListener('change', function() {
       const isChecked = this.checked;
       document.getElementById('dateSeparator').style.display = isChecked ? 'block' : 'none';
       document.getElementById('endDateArea').style.display = isChecked ? 'block' : 'none';
-      
-      // チェックが外れたら終了日の入力をクリアする
       if (!isChecked) {
         document.getElementById('endDate').value = "";
       }
     });
 
-    // 「終日」チェック時の挙動
     document.getElementById('allDay').addEventListener('change', function() {
       const startTimeInput = document.getElementById('startTime');
       const endTimeInput = document.getElementById('endTime');
-      
       if (this.checked) {
         startTimeInput.value = "08:30";
         endTimeInput.value = "17:30";
@@ -214,79 +238,62 @@
       }
     });
 
-    // 区分変更（振替休日）の挙動、振替指定日入力欄を表示
-    document.getElementById('category').addEventListener('change', function() {
-      document.getElementById('compDateField').style.display = (this.value === '振替休日') ? 'block' : 'none';
-    });
-
+    // ==========================================
+    // 送信（検索 or 新規）
+    // ==========================================
     document.getElementById('absenceForm').addEventListener('submit', function (ev) {
       ev.preventDefault();
-      submitForm();
+      const typeValue = document.getElementById('type').value;
+      if (typeValue === '取り消し') {
+        searchCandidates();
+      } else {
+        submitForm();
+      }
     });
 
     function validate(data) {
       if (!data.type) {
-        alert("種別を選択してください。");
-        return false;
+        alert("種別を選択してください。"); return false;
       } 
-      if (!data.category) {
-        alert("区分を選択してください。");
-        return false;
+      if (data.type !== '取り消し' && !data.category) {
+        alert("区分を選択してください。"); return false;
       }
       if (!data.startDate) {
-        alert("対象日を入力してください。");
-        return false;
+        alert("対象日を入力してください。"); return false;
       }
-      // 期間申請の場合のみ、終了日の有無と前後関係をチェック
       if (data.isPeriod) {
-        if (!data.endDate) {
-          alert("対象日の終了日を入力してください。");
-          return false;
-        }
-        if (data.startDate > data.endDate) {
-          alert("終了日は開始日以降の日付を指定してください。");
-          return false;
-        }
+        if (!data.endDate) { alert("対象日の終了日を入力してください。"); return false; }
+        if (data.startDate > data.endDate) { alert("終了日は開始日以降を指定してください。"); return false; }
       }
-      if (data.category === '振替休日' && !data.compDate) {
-        alert("振替出勤日を入力してください。");
-        return false;
+      if (data.type !== '取り消し' && data.category === '振替休日' && !data.compDate) {
+        alert("振替出勤日を入力してください。"); return false;
       }
       return true;
     }
 
+    // ==========================================
+    // 新規申請処理
+    // ==========================================
     function submitForm() {
+      const finalUserName = userProfile.displayName || document.getElementById('manualName').value;
+      if (!finalUserName) {
+         alert("お名前を入力してください。"); return;
+      }
+
       const isPeriodChecked = document.getElementById('isPeriod').checked;
       const startDateValue = document.getElementById('startDate').value;
-      
-      // 【重要】期間申請がOFFの場合は、開始日を終了日にもコピーして設定する
       const endDateValue = isPeriodChecked ? document.getElementById('endDate').value : startDateValue;
 
-      // 区分を取得
-      const categoryValue = document.getElementById('category').value;
-      // 振替日の値を取得（JavaScriptで振替休日以外なら空白になる）
-      let compDateValue = document.getElementById('compDate').value;
-
-      //名前の取得（ユーザー名が取得できなかった場合は手入力から読み込み。未入力なら警告）
-        const finalUserName = userProfile.displayName || document.getElementById('manualName').value;
-
-        if (!finalUserName) {
-         alert("お名前を入力してください。");
-        return;
-        }
-
-      //データを送る部分
       const data = {
+        action: "apply",
         userId: userProfile.userId,
         userName: finalUserName,
         type: document.getElementById('type').value,
         category: document.getElementById('category').value,
         compDate: document.getElementById('compDate').value,
-        
-        isPeriod: isPeriodChecked, // 判定用に一応送る
+        isPeriod: isPeriodChecked,
         startDate: startDateValue,
-        endDate: endDateValue,     // 1日のみの申請でも、ここには開始日と同じ日付が入る
-        
+        endDate: endDateValue,
         allDay: document.getElementById('allDay').checked,
         startTime: document.getElementById('startTime').value,
         endTime: document.getElementById('endTime').value,
@@ -295,29 +302,94 @@
 
       if (!validate(data)) return;
 
-       const btn = document.getElementById('submitBtn');
-       btn.disabled = true; // 二重送信防止
-       btn.innerText = "送信中...";
+      const btn = document.getElementById('submitBtn');
+      btn.disabled = true;
+      btn.innerText = "送信中...";
 
-        // GASのウェブアプリURLを指定
-        const gasUrl = "https://script.google.com/macros/s/AKfycbz2_fHa_RIfgUo2tsl38mJtTs-x93N8AUUvaYlb4qlK1HQa8xY9yKb_RNZ2r2zlVyeq/exec";
+      sendToGAS(data).then(() => {
+        alert("申請が完了しました。");
+        if (woffReady && woff.closeWindow) woff.closeWindow();
+      });
+    }
 
-        fetch(gasUrl, {
-            method: "POST",
-            mode: "no-cors", // GASへの送信エラー回避
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(data)
-        })
-         .then(() => {
-            alert("申請が完了しました。");
-            if (woffReady && woff.closeWindow) woff.closeWindow();
-        })
-          .catch(err => {
-            console.error(err);
-             alert("エラーが発生しました。");
-             btn.disabled = false;
-            btn.innerText = "申請する";
-        });     
+    // ==========================================
+    // 検索処理
+    // ==========================================
+    function searchCandidates() {
+      const finalUserName = userProfile.displayName || document.getElementById('manualName').value;
+      const startDateValue = document.getElementById('startDate').value;
+
+      if (!finalUserName || !startDateValue) {
+        alert("名前と対象日を入力して検索してください。");
+        return;
+      }
+
+      const btn = document.getElementById('submitBtn');
+      btn.disabled = true;
+      btn.innerText = "検索中...";
+
+      const payload = { action: "search", userName: finalUserName, startDate: startDateValue };
+
+      sendToGAS(payload).then(result => {
+        btn.disabled = false;
+        btn.innerText = "取り消し候補を再検索";
+        
+        const candidatesList = document.getElementById('candidatesList');
+        candidatesList.innerHTML = ''; 
+
+        if (result.candidates && result.candidates.length > 0) {
+          result.candidates.forEach((cand) => {
+            const label = document.createElement('label');
+            label.className = "radio is-block mb-2";
+            label.innerHTML = `<input type="radio" name="cancelTarget" value="${cand.rowNumber}"> 【${cand.type}】 ${cand.category} (対象日: ${payload.startDate})`;
+            candidatesList.appendChild(label);
+          });
+          document.getElementById('cancelCandidatesArea').style.display = 'block';
+        } else {
+          alert("該当する申請履歴が見つかりません。対象日を確認してください。");
+          document.getElementById('cancelCandidatesArea').style.display = 'none';
+        }
+      });
+    }
+
+    // ==========================================
+    // 取り消し確定処理
+    // ==========================================
+    document.getElementById('executeCancelBtn').addEventListener('click', function() {
+      const selected = document.querySelector('input[name="cancelTarget"]:checked');
+      if (!selected) { alert("取り消す申請を選択してください。"); return; }
+      if (!confirm("選択した申請を取り消します。よろしいですか？")) return;
+
+      const btn = document.getElementById('executeCancelBtn');
+      btn.disabled = true;
+      btn.innerText = "取り消し処理中...";
+
+      sendToGAS({ action: "cancel", targetRowNumber: selected.value }).then(() => {
+        alert("取り消し処理が完了しました。");
+        if (woffReady && woff.closeWindow) woff.closeWindow();
+      });
+    });
+
+    // ==========================================
+    // GAS通信処理
+    // ==========================================
+    function sendToGAS(payload) {
+      const gasUrl = "https://script.google.com/macros/s/AKfycbz2_fHa_RIfgUo2tsl38mJtTs-x93N8AUUvaYlb4qlK1HQa8xY9yKb_RNZ2r2zlVyeq/exec";
+      return fetch(gasUrl, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain" },
+        body: JSON.stringify(payload)
+      }).then(response => {
+        if (!response.ok) throw new Error("ネットワークエラー");
+        return response.json();
+      }).catch(err => {
+        console.error(err);
+        alert("サーバー通信中にエラーが発生しました。");
+        const btn = document.getElementById('submitBtn');
+        btn.disabled = false;
+        btn.innerText = document.getElementById('type').value === '取り消し' ? "取り消し候補を検索" : "申請する";
+        throw err; 
+      });
     }
   </script>
 </body>
