@@ -47,23 +47,34 @@
     let globalApproverName = "";
     let globalApproverId = "";
 
-    window.onload = function() {
-      // 💡 修正：URL全体から「id=〇〇」を強力に探し出す
+   window.onload = function() {
       const currentUrl = window.location.href;
-      
-      // 通常のパラメータ取得
       const urlParams = new URLSearchParams(window.location.search);
+      
+      // パターン1：普通に id があるか探す
       globalRequestId = urlParams.get('id');
 
-      // もし通常の方法で取れなかった場合、URLの文字列から直接切り抜く（バグ回避）
+      // 💡 パターン2：LINE WORKS仕様！ woff.state の暗号箱の中を探す
       if (!globalRequestId) {
-        const match = currentUrl.match(/id=([0-9]+)/);
+        const woffState = urlParams.get('woff.state');
+        if (woffState) {
+          // 暗号（%3Fなど）を元の文字（?など）に翻訳する
+          const decodedState = decodeURIComponent(woffState);
+          // 翻訳した文字から、改めて id を探す
+          const stateParams = new URLSearchParams(decodedState.replace('?', ''));
+          globalRequestId = stateParams.get('id');
+        }
+      }
+
+      // パターン3：最終手段（暗号化されたままの文字から無理やり数字を引っこ抜く）
+      if (!globalRequestId) {
+        const match = currentUrl.match(/id(?:=|%3D)([0-9]+)/);
         if (match) {
           globalRequestId = match[1];
         }
       }
 
-      // それでもIDがない場合、何が起きているかURL自体を画面に出す
+      // それでもダメな場合のエラー表示
       if (!globalRequestId) {
         updateStatus("❌ エラー: ID消失\n現在のURL:\n" + currentUrl, "red");
         return;
