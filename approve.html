@@ -1,24 +1,44 @@
+
+
 <!DOCTYPE html>
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>承認処理</title>
+  <title>承認手続き</title>
   <script charset="utf-8" src="https://static.worksmobile.net/static/wm/woff/edge/sdk.js"></script>
   <style>
-    body { font-family: sans-serif; text-align: center; margin-top: 50px; background-color: #f5f5f5; }
-    .container { background: #fff; padding: 30px 20px; border-radius: 12px; margin: 0 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-    #status-icon { font-size: 40px; margin-bottom: 10px; }
-    #message { font-size: 16px; color: #333; font-weight: bold; }
-    #sub-message { font-size: 12px; color: #666; margin-top: 10px; word-break: break-all; }
+    body { font-family: sans-serif; background-color: #f4f5f7; color: #333; margin: 0; padding: 20px; }
+    .container { max-width: 400px; margin: 0 auto; background: #fff; padding: 25px 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+    h2 { text-align: center; color: #00B900; margin-top: 0; }
+    .info-box { background: #f9f9f9; padding: 15px; border-radius: 8px; margin-bottom: 20px; font-size: 14px; display: none; }
+    .info-box p { margin: 8px 0; border-bottom: 1px dashed #ccc; padding-bottom: 5px; }
+    .user-box { text-align: center; font-weight: bold; font-size: 18px; color: #333; margin-bottom: 20px; padding: 10px; border: 2px solid #00B900; border-radius: 8px; display: none; }
+    .user-label { font-size: 12px; color: #666; font-weight: normal; }
+    .btn { display: none; width: 100%; background: #00B900; color: #fff; border: none; padding: 15px; font-size: 16px; font-weight: bold; border-radius: 8px; cursor: pointer; transition: 0.3s; }
+    .btn:disabled { background: #ccc; cursor: not-allowed; }
+    #status { text-align: center; margin-top: 15px; font-weight: bold; font-size: 14px; color: #666; }
   </style>
 </head>
 <body>
   <div class="container">
-    <div id="status-icon">⏳</div>
-    <div id="userInfoDisplay" class="user-info">
-    <div id="message">認証情報を取得中です...</div>
-    <div id="sub-message">画面を閉じずにお待ちください</div>
+    <h2>承認手続き</h2>
+    
+    <div id="status">⏳ LINE WORKSと通信中...</div>
+
+    <div class="user-box" id="userBox">
+      <div class="user-label">現在の担当承認者</div>
+      <span id="approverNameDisplay"></span> さん
+    </div>
+
+    <div class="info-box" id="infoBox">
+      <p><strong>申請者:</strong> <span id="reqName"></span></p>
+      <p><strong>種別:</strong> <span id="reqType"></span></p>
+      <p><strong>区分:</strong> <span id="reqCategory"></span></p>
+      <p><strong>期間:</strong> <span id="reqPeriod"></span></p>
+    </div>
+
+    <button id="approveBtn" class="btn" onclick="doApprove()">この内容で承認する</button>
   </div>
 
   <script>
@@ -26,77 +46,109 @@
     const WOFF_ID = "fwks1vLA5ED1cQGHnGkpnQ";
     const GAS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbz2_fHa_RIfgUo2tsl38mJtTs-x93N8AUUvaYlb4qlK1HQa8xY9yKb_RNZ2r2zlVyeq/exec";
 
-   window.onerror = function(msg, url, line) {
-      showError("システムエラー: " + msg);
-      return true;
-    };
+    let globalRequestId = "";
+    let globalApproverName = "";
+    let globalApproverId = "";
 
-    // 💡 修正ポイント2：SDKがブロックされるなどの通信エラー時の表示
-    function showSdkError() {
-      showError("SDKの読み込みに失敗しました。通信環境や広告ブロック設定を確認してください。");
-    }
-
-    // 💡 修正ポイント3：SDKの準備が「完全に」整ってから呼ばれる関数
-    function startWoff() {
-      woff.init({ woffId: WOFF_ID })
-        .then(() => {
-          document.getElementById("message").innerText = "承認処理を実行中...";
-          processApproval();
-        })
-        .catch((err) => {
-          showError("WOFF初期化エラー(LINE WORKSアプリ内で開いてください): " + err.message);
-        });
-    }
-
-    function processApproval() {
+    window.onload = function() {
       const urlParams = new URLSearchParams(window.location.search);
-      const requestId = urlParams.get('id');
-      const action = urlParams.get('action');
+      globalRequestId = urlParams.get('id');
 
-      if (!requestId || action !== "approve") {
-        showError("無効なリクエストです。(ID不足)");
+      if (!globalRequestId) {
+        updateStatus("❌ エラー: 申請IDが見つかりません", "red");
         return;
       }
 
-      woff.getProfile().then((profile) => {
-        const payload = {
-          type: "woff_approve",
-          id: requestId,
-          approverName: profile.displayName,
-          approverId: profile.userId
-        };
+      // Step 1: WOFFの初期化と名前の取得
+      woff.init({ woffId: WOFF_ID })
+        .then(() => {
+          updateStatus("⏳ プロフィール取得中...");
+          return woff.getProfile();
+        })
+        .then((profile) => {
+          globalApproverName = profile.displayName;
+          globalApproverId = profile.userId;
+          document.getElementById('approverNameDisplay').innerText = globalApproverName;
+          
+          updateStatus("⏳ 申請データを取得中...");
+          fetchApplicationData(); // GASにデータを問い合わせる
+        })
+        .catch((err) => {
+          updateStatus("❌ 認証エラー: " + err.message, "red");
+        });
+    };
 
-        fetch(GAS_WEBAPP_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain' },
-          body: JSON.stringify(payload)
-        })
-        .then(response => {
-          if (!response.ok) throw new Error("GAS通信エラー " + response.status);
-          return response.json();
-        })
-        .then(data => {
-          if (data.success) {
-            document.getElementById("status-icon").innerText = "✅";
-            document.getElementById("message").innerText = "承認が完了しました！";
-            document.getElementById("message").style.color = "#4CAF50";
-            document.getElementById("sub-message").innerText = "自動的に画面が閉じます...";
-            setTimeout(() => { woff.closeWindow(); }, 1500);
-          } else {
-            showError("サーバーエラー: " + data.error);
-          }
-        })
-        .catch(err => showError("通信に失敗しました: " + err.message));
-      }).catch(err => showError("プロフィールの取得に失敗: " + err.message));
+    // Step 2: GASから申請の詳細データを引っ張ってくる
+    function fetchApplicationData() {
+      const payload = { type: "woff_fetch_details", id: globalRequestId };
+
+      fetch(GAS_WEBAPP_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify(payload)
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.success) {
+          // 画面にデータを流し込んで表示する
+          document.getElementById('reqName').innerText = data.data.requester;
+          document.getElementById('reqType').innerText = data.data.type;
+          document.getElementById('reqCategory').innerText = data.data.category;
+          document.getElementById('reqPeriod').innerText = data.data.period;
+          
+          document.getElementById('userBox').style.display = "block";
+          document.getElementById('infoBox').style.display = "block";
+          document.getElementById('approveBtn').style.display = "block";
+          updateStatus(""); // ステータス文字を消す
+        } else {
+          updateStatus("❌ エラー: " + data.error, "red");
+        }
+      })
+      .catch(err => updateStatus("❌ 通信エラー: " + err.message, "red"));
     }
 
-    function showError(text) {
-      document.getElementById("status-icon").innerText = "❌";
-      document.getElementById("message").innerText = text;
-      document.getElementById("message").style.color = "#F44336";
-      document.getElementById("sub-message").innerText = "右上の✕で閉じてください";
+    // Step 3: 承認ボタンが押された時の処理
+    function doApprove() {
+      const btn = document.getElementById('approveBtn');
+      btn.disabled = true;
+      btn.innerText = "処理中...";
+      updateStatus("⏳ 承認を記録しています...");
+
+      const payload = {
+        type: "woff_approve",
+        id: globalRequestId,
+        approverName: globalApproverName,
+        approverId: globalApproverId
+      };
+
+      fetch(GAS_WEBAPP_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify(payload)
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.success) {
+          updateStatus("✅ 承認が完了しました！自動で閉じます。", "#00B900");
+          setTimeout(() => { woff.closeWindow(); }, 1500);
+        } else {
+          updateStatus("❌ エラー: " + data.error, "red");
+          btn.disabled = false;
+          btn.innerText = "もう一度やり直す";
+        }
+      })
+      .catch(err => {
+        updateStatus("❌ 通信エラー: " + err.message, "red");
+        btn.disabled = false;
+        btn.innerText = "もう一度やり直す";
+      });
+    }
+
+    function updateStatus(text, color = "#666") {
+      const el = document.getElementById('status');
+      el.innerText = text;
+      el.style.color = color;
     }
   </script>
 </body>
 </html>
- 
