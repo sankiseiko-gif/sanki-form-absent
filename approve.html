@@ -1,5 +1,3 @@
-
-
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -17,13 +15,12 @@
     .user-label { font-size: 12px; color: #666; font-weight: normal; }
     .btn { display: none; width: 100%; background: #00B900; color: #fff; border: none; padding: 15px; font-size: 16px; font-weight: bold; border-radius: 8px; cursor: pointer; transition: 0.3s; }
     .btn:disabled { background: #ccc; cursor: not-allowed; }
-    #status { text-align: center; margin-top: 15px; font-weight: bold; font-size: 14px; color: #666; }
+    #status { text-align: center; margin-top: 15px; font-weight: bold; font-size: 14px; color: #666; word-break: break-all; }
   </style>
 </head>
 <body>
   <div class="container">
     <h2>承認手続き</h2>
-    
     <div id="status">⏳ LINE WORKSと通信中...</div>
 
     <div class="user-box" id="userBox">
@@ -51,15 +48,27 @@
     let globalApproverId = "";
 
     window.onload = function() {
+      // 💡 修正：URL全体から「id=〇〇」を強力に探し出す
+      const currentUrl = window.location.href;
+      
+      // 通常のパラメータ取得
       const urlParams = new URLSearchParams(window.location.search);
       globalRequestId = urlParams.get('id');
 
+      // もし通常の方法で取れなかった場合、URLの文字列から直接切り抜く（バグ回避）
       if (!globalRequestId) {
-        updateStatus("❌ エラー: 申請IDが見つかりません", "red");
+        const match = currentUrl.match(/id=([0-9]+)/);
+        if (match) {
+          globalRequestId = match[1];
+        }
+      }
+
+      // それでもIDがない場合、何が起きているかURL自体を画面に出す
+      if (!globalRequestId) {
+        updateStatus("❌ エラー: ID消失\n現在のURL:\n" + currentUrl, "red");
         return;
       }
 
-      // Step 1: WOFFの初期化と名前の取得
       woff.init({ woffId: WOFF_ID })
         .then(() => {
           updateStatus("⏳ プロフィール取得中...");
@@ -71,14 +80,13 @@
           document.getElementById('approverNameDisplay').innerText = globalApproverName;
           
           updateStatus("⏳ 申請データを取得中...");
-          fetchApplicationData(); // GASにデータを問い合わせる
+          fetchApplicationData(); 
         })
         .catch((err) => {
           updateStatus("❌ 認証エラー: " + err.message, "red");
         });
     };
 
-    // Step 2: GASから申請の詳細データを引っ張ってくる
     function fetchApplicationData() {
       const payload = { type: "woff_fetch_details", id: globalRequestId };
 
@@ -90,7 +98,6 @@
       .then(response => response.json())
       .then(data => {
         if (data.success) {
-          // 画面にデータを流し込んで表示する
           document.getElementById('reqName').innerText = data.data.requester;
           document.getElementById('reqType').innerText = data.data.type;
           document.getElementById('reqCategory').innerText = data.data.category;
@@ -99,15 +106,14 @@
           document.getElementById('userBox').style.display = "block";
           document.getElementById('infoBox').style.display = "block";
           document.getElementById('approveBtn').style.display = "block";
-          updateStatus(""); // ステータス文字を消す
+          updateStatus(""); 
         } else {
-          updateStatus("❌ エラー: " + data.error, "red");
+          updateStatus("❌ 取得エラー: " + data.error, "red");
         }
       })
       .catch(err => updateStatus("❌ 通信エラー: " + err.message, "red"));
     }
 
-    // Step 3: 承認ボタンが押された時の処理
     function doApprove() {
       const btn = document.getElementById('approveBtn');
       btn.disabled = true;
@@ -129,16 +135,16 @@
       .then(response => response.json())
       .then(data => {
         if (data.success) {
-          updateStatus("✅ 承認が完了しました！自動で閉じます。", "#00B900");
+          updateStatus("✅ 承認完了！自動で閉じます。", "#00B900");
           setTimeout(() => { woff.closeWindow(); }, 1500);
         } else {
-          updateStatus("❌ エラー: " + data.error, "red");
+          updateStatus("❌ 保存エラー: " + data.error, "red");
           btn.disabled = false;
           btn.innerText = "もう一度やり直す";
         }
       })
       .catch(err => {
-        updateStatus("❌ 通信エラー: " + err.message, "red");
+        updateStatus("❌ 保存通信エラー: " + err.message, "red");
         btn.disabled = false;
         btn.innerText = "もう一度やり直す";
       });
