@@ -90,8 +90,10 @@
             showError("サーバーエラー: " + data.error);
           }
         })
-        .catch(err => showError("通信エラーが発生しました。"));
-      }).catch(err => showError("プロフィールの取得に失敗しました。"));
+        .catch(err =>｛
+          showError("通信エラー"+err.message);
+      });
+        .catch(err => showError("プロフィールの取得に失敗しました。"));
     }
 
     function showError(text) {
