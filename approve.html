@@ -76,7 +76,10 @@
           headers: { 'Content-Type': 'text/plain' }, // GASのCORS制約を回避するため plain を使用
           body: JSON.stringify(payload)
         })
-        .then(response => response.json())
+        .then(response => {
+          if (!response.ok) throw new Error("GASの応答エラー: " + response.status);
+          return response.json();
+        })
         .then(data => {
           if (data.success) {
             // 5. 成功したら画面を書き換えて、1.5秒後に自動で閉じる
