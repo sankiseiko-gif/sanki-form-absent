@@ -4,24 +4,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>承認処理</title>
-  <script src="https://static.worksmobile.net/static/wm/woff/edge/send.js"></script>
+  <script charset="utf-8" src="https://static.worksmobile.net/static/wm/woff/edge/sdk.js"></script>
   <style>
-    body {
-      font-family: sans-serif;
-      text-align: center;
-      margin-top: 50px;
-      background-color: #f5f5f5;
-    }
-    .container {
-      background: #fff;
-      padding: 30px 20px;
-      border-radius: 12px;
-      margin: 0 20px;
-      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-    }
+    body { font-family: sans-serif; text-align: center; margin-top: 50px; background-color: #f5f5f5; }
+    .container { background: #fff; padding: 30px 20px; border-radius: 12px; margin: 0 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
     #status-icon { font-size: 40px; margin-bottom: 10px; }
     #message { font-size: 16px; color: #333; font-weight: bold; }
-    #sub-message { font-size: 12px; color: #666; margin-top: 10px; }
+    #sub-message { font-size: 12px; color: #666; margin-top: 10px; word-break: break-all; }
   </style>
 </head>
 <body>
@@ -32,78 +21,86 @@
   </div>
 
   <script>
-    // ⚠️ ここに Developer Console で発行した WOFF ID と GASのURL を入力してください
+// ⚠️ あなたのIDとURLに書き換えてください
     const WOFF_ID = "fwks1vLA5ED1cQGHnGkpnQ";
     const GAS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbz2_fHa_RIfgUo2tsl38mJtTs-x93N8AUUvaYlb4qlK1HQa8xY9yKb_RNZ2r2zlVyeq/exec";
 
+
+    // 💡 どんなシステムエラーも逃がさないための監視カメラ
+    window.onerror = function(msg, url, line) {
+      showError("システムエラー: " + msg);
+      return true;
+    };
+
     window.onload = function() {
-      // 1. WOFFの初期化
-      woff.init({ woffId: WOFF_ID })
-        .then(() => {
-          document.getElementById("message").innerText = "承認処理を実行中...";
-          processApproval();
-        })
-        .catch((err) => {
-          showError("WOFF初期化エラー: LINE WORKSアプリから開いてください。");
-        });
+      try {
+        // SDKが読み込めているかチェック
+        if (typeof woff === 'undefined') {
+          throw new Error("LINE WORKSのシステム(SDK)に接続できませんでした。");
+        }
+
+        // 1. WOFFの初期化
+        woff.init({ woffId: WOFF_ID })
+          .then(() => {
+            document.getElementById("message").innerText = "承認処理を実行中...";
+            processApproval();
+          })
+          .catch((err) => {
+            showError("WOFF初期化エラー: " + err.message);
+          });
+      } catch (e) {
+        // 即死エラーもここでキャッチして赤文字にする
+        showError("致命的エラー: " + e.message);
+      }
     };
 
     function processApproval() {
-      // 2. URLから パラメータ（?id=12345&action=approve）を取得
       const urlParams = new URLSearchParams(window.location.search);
       const requestId = urlParams.get('id');
       const action = urlParams.get('action');
 
       if (!requestId || action !== "approve") {
-        showError("無効なリクエストです。");
+        showError("無効なリクエストです。(ID不足)");
         return;
       }
 
-      // 3. WOFFから「現在開いている人」のプロフィールを取得！
       woff.getProfile().then((profile) => {
-        
-        // GASに送るデータの箱を作成
         const payload = {
-          type: "woff_approve", // GAS側で識別するための目印
+          type: "woff_approve",
           id: requestId,
-          approverName: profile.displayName, // 💡 これが欲しかった「本当の名前」！
+          approverName: profile.displayName,
           approverId: profile.userId
         };
 
-        // 4. GASの doPost へ送信
         fetch(GAS_WEBAPP_URL, {
           method: 'POST',
-          headers: { 'Content-Type': 'text/plain' }, // GASのCORS制約を回避するため plain を使用
+          headers: { 'Content-Type': 'text/plain' },
           body: JSON.stringify(payload)
         })
         .then(response => {
-          if (!response.ok) throw new Error("GASの応答エラー: " + response.status);
+          if (!response.ok) throw new Error("GAS通信エラー " + response.status);
           return response.json();
         })
         .then(data => {
           if (data.success) {
-            // 5. 成功したら画面を書き換えて、1.5秒後に自動で閉じる
             document.getElementById("status-icon").innerText = "✅";
             document.getElementById("message").innerText = "承認が完了しました！";
             document.getElementById("message").style.color = "#4CAF50";
             document.getElementById("sub-message").innerText = "自動的に画面が閉じます...";
-            
             setTimeout(() => { woff.closeWindow(); }, 1500);
           } else {
             showError("サーバーエラー: " + data.error);
           }
         })
-        .catch(err =>｛
-          showError("通信エラー"+err.message);
-      });
-        .catch(err => showError("プロフィールの取得に失敗しました。"));
+        .catch(err => showError("通信に失敗しました: " + err.message));
+      }).catch(err => showError("プロフィールの取得に失敗: " + err.message));
     }
 
     function showError(text) {
       document.getElementById("status-icon").innerText = "❌";
       document.getElementById("message").innerText = text;
       document.getElementById("message").style.color = "#F44336";
-      document.getElementById("sub-message").innerText = "右上の✕で画面を閉じてください";
+      document.getElementById("sub-message").innerText = "右上の✕で閉じてください";
     }
   </script>
 </body>
