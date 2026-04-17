@@ -120,6 +120,14 @@
           </div>
         </div>
 
+        <div class="field" id="targetNameField" style="display: none; background-color: #fff5f5; padding: 15px; border: 1px solid #f14668; border-radius: 4px; margin-bottom: 20px;">
+          <label class="label has-text-danger" for="targetName">取り消し対象者名 <span class="has-text-danger is-size-7">※必須</span></label>
+          <div class="control">
+            <input class="input is-danger" type="text" id="targetName" placeholder="取り消したい対象者の名前を入力（例：三基太郎）">
+          </div>
+          <p class="help has-text-danger">※総務担当者用：誰の申請を取り消すかを入力してください。</p>
+        </div>
+        
         <div id="cancelCandidatesArea" class="box" style="display: none; background-color: #fff5f5; border: 1px solid #f14668;">
           <h3 class="title is-6 has-text-danger">取り消す申請を選択してください</h3>
           <div id="candidatesList" class="control mb-4">
@@ -181,6 +189,7 @@
 
       const submitBtn = document.getElementById('submitBtn');
       const cancelArea = document.getElementById('cancelCandidatesArea');
+      const targetNameField = document.getElementById('targetNameField'); // ★追加：対象者名フィールド
       
       const startTimeInput = document.getElementById('startTime');
       const endTimeInput = document.getElementById('endTime');
@@ -189,10 +198,12 @@
         submitBtn.innerText = "取り消し候補を検索";
         submitBtn.classList.replace('is-link', 'is-warning');
         cancelArea.style.display = 'none';
+        targetNameField.style.display = 'block'; // ★取り消し時は対象者名入力を表示
       } else {
         submitBtn.innerText = "申請する";
         submitBtn.classList.replace('is-warning', 'is-link');
         cancelArea.style.display = 'none';
+        targetNameField.style.display = 'none'; // ★通常時は非表示
         
         // 遅刻・早退の自動入力
         if (selectedType === '遅刻') {
@@ -312,15 +323,35 @@
       });
     }
 
+   
+    // ==========================================
+    // 取り消し確定処理
+    // ==========================================
+    document.getElementById('executeCancelBtn').addEventListener('click', function() {
+      const selected = document.querySelector('input[name="cancelTarget"]:checked');
+      if (!selected) { alert("取り消す申請を選択してください。"); return; }
+      if (!confirm("選択した申請を取り消します。よろしいですか？")) return;
+
+      const btn = document.getElementById('executeCancelBtn');
+      btn.disabled = true;
+      btn.innerText = "取り消し処理中...";
+
+      sendToGAS({ action: "cancel", targetRowNumber: selected.value }).then(() => {
+        alert("取り消し処理が完了しました。");
+        if (woffReady && woff.closeWindow) woff.closeWindow();
+      });
+    });
+    
     // ==========================================
     // 検索処理
     // ==========================================
     function searchCandidates() {
-      const finalUserName = userProfile.displayName || document.getElementById('manualName').value;
+      // ★自身の名前ではなく、対象者名入力欄から名前を取得する
+      const targetUserName = document.getElementById('targetName').value.trim();
       const startDateValue = document.getElementById('startDate').value;
 
-      if (!finalUserName || !startDateValue) {
-        alert("名前と対象日を入力して検索してください。");
+      if (!targetUserName || !startDateValue) {
+        alert("対象者名と対象日を入力して検索してください。");
         return;
       }
 
@@ -328,7 +359,8 @@
       btn.disabled = true;
       btn.innerText = "検索中...";
 
-      const payload = { action: "search", userName: finalUserName, startDate: startDateValue };
+      // ★ userNameとしてtargetUserNameを送信
+      const payload = { action: "search", userName: targetUserName, startDate: startDateValue };
 
       sendToGAS(payload).then(result => {
         btn.disabled = false;
@@ -351,25 +383,7 @@
         }
       });
     }
-
-    // ==========================================
-    // 取り消し確定処理
-    // ==========================================
-    document.getElementById('executeCancelBtn').addEventListener('click', function() {
-      const selected = document.querySelector('input[name="cancelTarget"]:checked');
-      if (!selected) { alert("取り消す申請を選択してください。"); return; }
-      if (!confirm("選択した申請を取り消します。よろしいですか？")) return;
-
-      const btn = document.getElementById('executeCancelBtn');
-      btn.disabled = true;
-      btn.innerText = "取り消し処理中...";
-
-      sendToGAS({ action: "cancel", targetRowNumber: selected.value }).then(() => {
-        alert("取り消し処理が完了しました。");
-        if (woffReady && woff.closeWindow) woff.closeWindow();
-      });
-    });
-
+    
     // ==========================================
     // GAS通信処理
     // ==========================================
