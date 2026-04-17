@@ -24,6 +24,22 @@
 
     <div id="userInfoDisplay" class="user-info" style="display: none;"></div>
 
+<div id="userInfoDisplay" class="user-info" style="display: none;"></div>
+
+<div id="manualNameField" class="box" style="display: none; background-color: #fffbeb; border: 1px solid #f59e0b; margin-bottom: 20px;">
+  <p class="help is-warning has-text-weight-bold mb-2">
+    ⚠️ ユーザー情報の自動取得に失敗しました。承認者名を手動で入力してください。
+  </p>
+  <div class="field has-addons">
+    <div class="control is-expanded">
+      <input class="input" type="text" id="manualApproverName" placeholder="お名前を入力（例：三基太郎）">
+    </div>
+    <div class="control">
+      <button type="button" class="button is-warning" id="setManualNameBtn">次へ</button>
+    </div>
+  </div>
+</div>
+    
     <div id="approvalList"></div>
   </div>
 
@@ -34,9 +50,12 @@
 
     let globalApproverName = "";
 
+     function startFetching() {
+        showStatus("⏳ 未承認データを取得中...");
+        fetchAllPendingApprovals(); // GASに未承認リストを要求
+      }
+    
     window.addEventListener('load', () => {
-      // 💡 URLの解析は一切行いません！
-
       if (typeof woff !== 'undefined' && woff.init) {
         woff.init({ woffId: WOFF_ID })
           .then(() => woff.getProfile())
@@ -44,16 +63,50 @@
             globalApproverName = profile.displayName;
             document.getElementById('userInfoDisplay').innerText = `ログイン中: ${globalApproverName}`;
             document.getElementById('userInfoDisplay').style.display = "block";
-            
-            showStatus("⏳ 未承認データを取得中...");
-            fetchAllPendingApprovals(); // GASに未承認リストを要求
+            startFetching(); // データ取得開始
           })
           .catch(err => {
-            showStatus("❌ ユーザー情報の取得に失敗しました", "red");
+            // 自動取得エラー時のルート（PCからのアクセス等）
+            console.error(err);
+            showStatus("名前を手動入力してください。", "red");
+            document.getElementById('manualNameField').style.display = "block"; // 手動入力欄を表示
           });
+      } else {
+        // そもそもWOFF SDKが読み込めなかった時のルート
+        showStatus("名前を手動入力してください。", "red");
+        document.getElementById('manualNameField').style.display = "block"; // 手動入力欄を表示
       }
     });
 
+    // ====================================================
+    //  手動入力で「次へ」ボタンを押した時の処理
+    // ====================================================
+    document.addEventListener('DOMContentLoaded', () => {
+      const setManualNameBtn = document.getElementById('setManualNameBtn');
+      if (setManualNameBtn) {
+        setManualNameBtn.addEventListener('click', () => {
+          const inputName = document.getElementById('manualApproverName').value.trim();
+          
+          if (!inputName) {
+            alert("お名前を入力してください。");
+            return;
+          }
+
+          // グローバル変数に手動入力した名前をセット
+          globalApproverName = inputName;
+          
+          // UIの表示を更新して、入力欄を隠す
+          document.getElementById('userInfoDisplay').innerText = `ログイン中（手動入力）: ${globalApproverName}`;
+          document.getElementById('userInfoDisplay').style.display = "block";
+          document.getElementById('manualNameField').style.display = "none";
+
+          startFetching(); // データ取得開始
+        });
+      }
+    });
+
+
+    
     // 💡 GASから「全員の未承認リスト」を取得
     function fetchAllPendingApprovals() {
       fetch(GAS_WEBAPP_URL, {
