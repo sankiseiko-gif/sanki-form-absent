@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>上長承認管理</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://static.worksmobile.net/static/wm/woff/edge/3.6.0/sdk.js"></script>
+    <style>
+        body { font-family: sans-serif; }
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .fade-in { animation: fadeIn 0.5s ease-in-out forwards; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <div class="bg-blue-600 text-white text-center py-4 shadow-md mb-4">
+        <h1 class="font-bold text-lg">休暇申請 - 承認管理 (上長用)</h1>
+    </div>
+
+    <div id="loading" class="fixed inset-0 bg-white bg-opacity-80 flex justify-center items-center z-50 hidden">
+        <div class="flex flex-col items-center"><div class="loader mb-2"></div><p id="loadingText" class="text-sm text-gray-600 font-bold">通信中...</p></div>
+    </div>
+
+    <main class="px-4 pb-8 max-w-lg mx-auto">
+        <!-- 認証フォールバックエリア -->
+        <div id="authArea" class="bg-white p-5 rounded-lg shadow-sm border border-red-200 mb-5 hidden">
+            <p class="text-sm font-bold text-red-600 mb-3">自動認証に失敗しました。<br>権限を確認するため、氏名を入力して連携してください。</p>
+            <div class="flex gap-2">
+                <input type="text" id="userName" class="flex-1 border border-gray-300 rounded p-2 text-sm" placeholder="漢字で氏名を入力">
+                <button onclick="authenticateByName()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 rounded shadow">連携</button>
+            </div>
+        </div>
+
+        <!-- 承認リストエリア -->
+        <section id="approveArea" class="hidden">
+            <div class="flex justify-between items-center mb-3">
+                <h3 class="font-bold text-gray-700">承認待ち一覧</h3>
+                <span class="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-bold border border-blue-200" id="approverName"></span>
+            </div>
+            <div id="approveList" class="space-y-3"></div>
+        </section>
+    </main>
+
+    <script>
+        const GAS_URL = "https://script.google.com/macros/s/AKfycbxwEuHjXVsUjbhH9Bo5yQ3vgln5LM615sKftO5pQgzjpPzpRvXuxMcqmyNTNhEhaQeZ/exec";
+        const WOFF_ID = "YOUR_WOFF_ID_MANAGER"; // ★上長用WOFF IDに置き換え
+        
+        let currentUser = { id: "", name: "", role: "" };
+
+        window.onload = () => {
+            const timeoutId = setTimeout(() => {
+                if(!currentUser.id) document.getElementById('authArea').classList.remove('hidden');
+            }, 5000);
+
+            woff.init({ woffId: WOFF_ID }).then(() => {
+                if (!woff.isLoggedIn()) { woff.login(); return; }
+                woff.getProfile().then(profile => {
+                    clearTimeout(timeoutId);
+                    currentUser.id = profile.userId;
+                    initApp();
+                }).catch(() => { clearTimeout(timeoutId); document.getElementById('authArea').classList.remove('hidden'); });
+            }).catch(() => { clearTimeout(timeoutId); document.getElementById('authArea').classList.remove('hidden'); });
+        };
+
+        async function fetchGasPost(action, payload) {
+            const res = await fetch(GAS_URL, {
+                method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify({ action, payload })
+            });
+            return res.json();
+        }
+
+        function showLoading(show, text = "通信中...") {
+            document.getElementById('loadingText').textContent = text;
+            document.getElementById('loading').style.display = show ? 'flex' : 'none';
+        }
+
+        async function initApp() {
+            showLoading(true, "権限を確認中...");
+            try {
+                const json = await fetchGasPost('getUser', { userId: currentUser.id });
+                if (json.status === 'success' && json.data.userName) {
+                    currentUser.name = json.data.userName;
+                    currentUser.role = json.data.role;
+                    verifyRoleAndLoad();
+                } else throw new Error("ユーザー不明");
+            } catch (e) {
+                document.getElementById('authArea').classList.remove('hidden');
+            } finally { showLoading(false); }
+        }
+
+        async function authenticateByName() {
+            const nameInput = document.getElementById('userName').value.trim();
+            if (!nameInput) return alert("氏名を入力してください。");
+            showLoading(true, "連携中...");
+            try {
+                const json = await fetchGasPost('getUserByName', { userName: nameInput });
+                if (json.status === 'success' && json.data) {
+                    currentUser.id = json.data.userId;
+                    currentUser.name = json.data.userName;
+                    currentUser.role = json.data.role;
+                    verifyRoleAndLoad();
+                } else alert("マスタに該当する名前が見つかりません。");
+            } catch (e) { alert("通信エラー"); }
+            finally { showLoading(false); }
+        }
+
+        function verifyRoleAndLoad() {
+            if (currentUser.role === '上長' || currentUser.role === '総務') {
+                document.getElementById('authArea').classList.add('hidden');
+                document.getElementById('approveArea').classList.remove('hidden');
+                document.getElementById('approverName').innerText = currentUser.name;
+                fetchListData();
+            } else {
+                alert("この画面へアクセスする権限（上長）がありません。");
+                if(woff.isLoggedIn()) woff.closeWindow();
+            }
+        }
+
+        async function fetchListData() {
+            showLoading(true, "リストを取得中...");
+            try {
+                // 上長用のリストを取得するためのパラメータ (role: '上長')
+                const json = await fetchGasPost('getList', { userId: currentUser.id, role: '上長' });
+                if (json.status === 'success') renderApproveList(json.data);
+            } catch (e) { alert("取得失敗"); } 
+            finally { showLoading(false); }
+        }
+
+        function renderApproveList(list) {
+            const container = document.getElementById('approveList');
+            // 自分が上長として設定されている仮申請のみをフィルタ
+            const filtered = list.filter(item => item.status === '仮申請' && item.managerId === currentUser.id);
+
+            if (filtered.length === 0) {
+                container.innerHTML = `<div class="bg-blue-50 border border-blue-200 p-6 rounded-lg text-center fade-in">
+                    <p class="text-blue-700 font-bold text-lg mb-1">🎉 承認待ちの申請はありません</p>
+                </div>`;
+                setTimeout(() => { if(woff.isLoggedIn()) woff.closeWindow(); }, 2000);
+                return;
+            }
+
+            container.innerHTML = filtered.map(item => `
+                <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-100 border-l-4 border-blue-500" id="card-${item.uid}">
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="font-bold text-gray-800">${item.userName}</span>
+                        <span class="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-full border">${item.status}</span>
+                    </div>
+                    <p class="text-sm text-gray-600 mb-1">区分: ${item.category}</p>
+                    <p class="text-sm text-gray-600 mb-3">対象: ${item.startDate}</p>
+                    <button id="btn-${item.uid}" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-md py-2 transition shadow disabled:bg-gray-400" 
+                        onclick="approveRequest('${item.uid}')">承認する</button>
+                </div>
+            `).join('');
+        }
+
+        async function approveRequest(uid) {
+            if(!confirm("承認しますか？")) return;
+            const btn = document.getElementById(`btn-${uid}`);
+            btn.disabled = true;
+            showLoading(true, "処理中...");
+            try {
+                const json = await fetchGasPost('approve', { uid: uid, execUserName: currentUser.name, execRole: currentUser.role });
+                if (json.status === 'success') { 
+                    btn.innerText = "✅ 承認完了";
+                    btn.classList.replace('bg-blue-600', 'bg-green-500');
+                    setTimeout(() => fetchListData(), 1000);
+                } else throw new Error(json.message);
+            } catch (e) { alert("エラー: " + e.message); btn.disabled = false; }
+            finally { showLoading(false); }
+        }
+    </script>
+</body>
+</html>
