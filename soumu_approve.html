@@ -52,10 +52,9 @@
     <script>
         const GAS_URL = "https://script.google.com/macros/s/AKfycbxwEuHjXVsUjbhH9Bo5yQ3vgln5LM615sKftO5pQgzjpPzpRvXuxMcqmyNTNhEhaQeZ/exec";
         const WOFF_ID = "H00GMadPm09uj7QukuKCCw"; 
-        
+    
         let currentUser = { id: "", name: "", role: "" };
 
-        // 🚨 画面上にエラー原因を表示するためのヘルパー関数
         function showErrorLog(message, errDetails = "") {
             const authArea = document.getElementById('authArea');
             authArea.classList.remove('hidden');
@@ -65,12 +64,11 @@
             
             logArea.innerHTML = `<div class="mt-4 p-3 bg-red-50 border border-red-300 rounded text-xs text-red-700 break-all">
                 <span class="font-bold block mb-1">【デバッグ情報】</span>
-                ${message}<br><span class="text-gray-500 mt-1 block">${errText}</span>
+                ${message}<br><span class="text-gray-500 mt-1 block whitespace-pre-wrap">${errText}</span>
             </div>`;
             showLoading(false);
         }
 
-        // 確実な読み込みイベントから処理をスタート
         window.addEventListener('load', () => {
             if (typeof woff === 'undefined') {
                 showErrorLog("WOFF SDKが読み込まれていません。通信環境を確認してください。");
@@ -80,14 +78,12 @@
             woff.init({ woffId: WOFF_ID })
                 .then(() => {
                     if (!woff.isLoggedIn()) {
-                        // 未ログインならログインを促す
                         woff.login();
                     } else {
-                        // ログイン済みならプロファイルを取得
                         woff.getProfile()
                             .then(profile => {
                                 currentUser.id = profile.userId;
-                                initApp(); // 成功したらGASへ
+                                initApp();
                             })
                             .catch(err => {
                                 showErrorLog("プロファイルの取得に失敗しました。", err);
@@ -115,13 +111,20 @@
             showLoading(true, "権限を確認中...");
             try {
                 const json = await fetchGasPost('getUser', { userId: currentUser.id });
-                if (json.status === 'success' && json.data.userName) {
-                    currentUser.name = json.data.userName;
-                    currentUser.role = json.data.role;
-                    verifyRoleAndLoad();
-                } else throw new Error("マスタにユーザー情報が存在しません");
+                if (json.status === 'success') {
+                    if (json.data && json.data.userName) {
+                        currentUser.name = json.data.userName;
+                        currentUser.role = json.data.role;
+                        verifyRoleAndLoad();
+                    } else {
+                        // 🌟 ここがポイント：取得した本物のIDを表示します
+                        throw new Error(`MasterシートのA列のIDと一致しません。\n\n【WOFFで取得したID】\n${currentUser.id}\n\n👆これをMasterシートのA列にコピペしてください。`);
+                    }
+                } else {
+                    throw new Error(`GASエラー: ${json.message}`);
+                }
             } catch (e) {
-                showErrorLog("GASとの通信、またはユーザー情報の取得に失敗しました。", e.message);
+                showErrorLog("ユーザー情報の照合に失敗しました。", e.message);
             } finally { showLoading(false); }
         }
 
