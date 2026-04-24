@@ -1,3 +1,5 @@
+
+
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -5,7 +7,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>総務承認管理</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://static.worksmobile.net/static/wm/woff/edge/3.6/sdk.js"></script>
+    <!-- 【修正①】旧版と同じ新しいバージョン(3.7.1)に戻しました -->
+    <script src="https://static.worksmobile.net/static/wm/woff/edge/3.7.1/sdk.js"></script>
     <style>
         body { font-family: sans-serif; }
         .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; }
@@ -53,28 +56,23 @@
         
         let currentUser = { id: "", name: "", role: "" };
 
-        window.onload = () => {
-            const timeoutId = setTimeout(() => {
-                if(!currentUser.id) document.getElementById('authArea').classList.remove('hidden');
-            }, 5000);
-
-            // 【修正済】スマホでの連携エラーを防ぐための堅牢な処理
-            if (typeof woff !== 'undefined') {
-                woff.init({ woffId: WOFF_ID }).then(() => {
-                    if (!woff.isLoggedIn()) { woff.login(); return; }
-                    return woff.getProfile();
-                }).then(profile => {
-                    if (profile) {
-                        clearTimeout(timeoutId);
+        // 【修正②】旧版と全く同じ、ストレートに情報を引き出すロジック
+        window.addEventListener('load', () => {
+            if (typeof woff !== 'undefined' && woff.init) {
+                woff.init({ woffId: WOFF_ID })
+                    .then(() => woff.getProfile())
+                    .then(profile => {
                         currentUser.id = profile.userId;
-                        initApp();
-                    }
-                }).catch(() => { clearTimeout(timeoutId); document.getElementById('authArea').classList.remove('hidden'); });
+                        initApp(); // データ取得開始
+                    })
+                    .catch(err => {
+                        console.error(err);
+                        document.getElementById('authArea').classList.remove('hidden');
+                    });
             } else {
-                clearTimeout(timeoutId);
                 document.getElementById('authArea').classList.remove('hidden');
             }
-        };
+        });
 
         async function fetchGasPost(action, payload) {
             const res = await fetch(GAS_URL, {
@@ -126,7 +124,7 @@
                 fetchListData();
             } else {
                 alert("この画面へアクセスする権限がありません。");
-                if (typeof woff !== 'undefined' && woff.isLoggedIn && woff.isLoggedIn()) woff.closeWindow();
+                if (typeof woff !== 'undefined' && woff.closeWindow) woff.closeWindow();
             }
         }
 
@@ -139,7 +137,6 @@
             finally { showLoading(false); }
         }
 
-        // 【修正済】種別、区分、時間、理由、振替対象日を詳細表示するレイアウトに変更
         function renderApproveList(list) {
             const approveContainer = document.getElementById('approveList');
             const pendingContainer = document.getElementById('pendingManagerList');
@@ -153,11 +150,10 @@
                     <p class="text-red-600 text-xs">画面を閉じます...</p>
                 </div>`;
                 pendingContainer.innerHTML = '';
-                setTimeout(() => { if(typeof woff !== 'undefined' && woff.isLoggedIn && woff.isLoggedIn()) woff.closeWindow(); }, 2000);
+                setTimeout(() => { if(typeof woff !== 'undefined' && woff.closeWindow) woff.closeWindow(); }, 2000);
                 return;
             }
 
-            // ヘルパー関数：カードの中身（詳細情報）を生成
             const buildCardContent = (item) => `
                 <div class="grid grid-cols-2 gap-2 text-sm text-gray-700 mb-4 bg-gray-50 p-3 rounded">
                     <div><span class="font-bold text-gray-500 text-xs block mb-0.5">種別</span>${item.type || '未指定'}</div>
