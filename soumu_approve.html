@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>総務承認管理</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- 【修正①】旧版と同じ新しいバージョン(3.7.1)に戻しました -->
     <script src="https://static.worksmobile.net/static/wm/woff/edge/3.7.1/sdk.js"></script>
     <style>
         body { font-family: sans-serif; }
@@ -54,23 +53,38 @@
         
         let currentUser = { id: "", name: "", role: "" };
 
-        // 【修正②】旧版と全く同じ、ストレートに情報を引き出すロジック
-        window.addEventListener('load', () => {
-            if (typeof woff !== 'undefined' && woff.init) {
-                woff.init({ woffId: WOFF_ID })
-                    .then(() => woff.getProfile())
-                    .then(profile => {
-                        currentUser.id = profile.userId;
-                        initApp(); // データ取得開始
-                    })
-                    .catch(err => {
-                        console.error(err);
-                        document.getElementById('authArea').classList.remove('hidden');
-                    });
-            } else {
+        // 【完全修正】 window.onload を撤廃し、スクリプト実行直後に初期化をスタートする
+        async function initializeWoff() {
+            if (typeof woff === 'undefined') {
+                document.getElementById('authArea').classList.remove('hidden');
+                return;
+            }
+
+            try {
+                // 1. 待たずにすぐ初期化
+                await woff.init({ woffId: WOFF_ID });
+                
+                // 2. ログインチェック
+                if (!woff.isLoggedIn()) {
+                    woff.login(); // 未ログインならログイン画面へ（自動で画面が遷移します）
+                    return;
+                }
+                
+                // 3. プロファイル取得
+                const profile = await woff.getProfile();
+                currentUser.id = profile.userId;
+                
+                // 4. データ取得開始
+                initApp();
+                
+            } catch (error) {
+                console.error("WOFF Initialization Error:", error);
                 document.getElementById('authArea').classList.remove('hidden');
             }
-        });
+        }
+
+        // ここで即座に実行！
+        initializeWoff();
 
         async function fetchGasPost(action, payload) {
             const res = await fetch(GAS_URL, {
