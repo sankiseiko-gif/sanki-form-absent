@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>総務承認管理</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://static.worksmobile.net/static/wm/woff/edge/3.6.0/sdk.js"></script>
+    <script src="https://static.worksmobile.net/static/wm/woff/edge/3.6/sdk.js"></script>
     <style>
         body { font-family: sans-serif; }
         .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; }
@@ -25,7 +25,6 @@
     </div>
 
     <main class="px-4 pb-8 max-w-lg mx-auto">
-        <!-- 認証フォールバックエリア -->
         <div id="authArea" class="bg-white p-5 rounded-lg shadow-sm border border-red-200 mb-5 hidden">
             <p class="text-sm font-bold text-red-600 mb-3">自動認証に失敗しました。<br>権限を確認するため、氏名を入力して連携してください。</p>
             <div class="flex gap-2">
@@ -34,20 +33,17 @@
             </div>
         </div>
 
-        <!-- 承認リストエリア -->
         <section id="approveArea" class="hidden">
-            <!-- 1. 総務承認待ちセクション -->
             <div class="flex justify-between items-center mb-3">
                 <h3 class="font-bold text-gray-700">最終確認待ち一覧</h3>
                 <span class="text-xs bg-red-100 text-red-700 px-2 py-1 rounded-full font-bold border border-red-200" id="approverName"></span>
             </div>
-            <div id="approveList" class="space-y-3 mb-8"></div>
+            <div id="approveList" class="space-y-4 mb-8"></div>
 
-            <!-- 2. 上長未承認(確認用)セクション -->
             <div class="flex justify-between items-center mb-3 pt-4 border-t border-gray-300">
                 <h3 class="font-bold text-gray-600">上長未承認 (確認用)</h3>
             </div>
-            <div id="pendingManagerList" class="space-y-3"></div>
+            <div id="pendingManagerList" class="space-y-4"></div>
         </section>
     </main>
 
@@ -62,14 +58,22 @@
                 if(!currentUser.id) document.getElementById('authArea').classList.remove('hidden');
             }, 5000);
 
-            woff.init({ woffId: WOFF_ID }).then(() => {
-                if (!woff.isLoggedIn()) { woff.login(); return; }
-                woff.getProfile().then(profile => {
-                    clearTimeout(timeoutId);
-                    currentUser.id = profile.userId;
-                    initApp();
+            // 【修正済】スマホでの連携エラーを防ぐための堅牢な処理
+            if (typeof woff !== 'undefined') {
+                woff.init({ woffId: WOFF_ID }).then(() => {
+                    if (!woff.isLoggedIn()) { woff.login(); return; }
+                    return woff.getProfile();
+                }).then(profile => {
+                    if (profile) {
+                        clearTimeout(timeoutId);
+                        currentUser.id = profile.userId;
+                        initApp();
+                    }
                 }).catch(() => { clearTimeout(timeoutId); document.getElementById('authArea').classList.remove('hidden'); });
-            }).catch(() => { clearTimeout(timeoutId); document.getElementById('authArea').classList.remove('hidden'); });
+            } else {
+                clearTimeout(timeoutId);
+                document.getElementById('authArea').classList.remove('hidden');
+            }
         };
 
         async function fetchGasPost(action, payload) {
@@ -121,8 +125,8 @@
                 document.getElementById('approverName').innerText = currentUser.name;
                 fetchListData();
             } else {
-                alert("この画面へアクセスする権限（総務）がありません。");
-                if(woff.isLoggedIn()) woff.closeWindow();
+                alert("この画面へアクセスする権限がありません。");
+                if (typeof woff !== 'undefined' && woff.isLoggedIn && woff.isLoggedIn()) woff.closeWindow();
             }
         }
 
@@ -135,62 +139,83 @@
             finally { showLoading(false); }
         }
 
+        // 【修正済】種別、区分、時間、理由、振替対象日を詳細表示するレイアウトに変更
         function renderApproveList(list) {
             const approveContainer = document.getElementById('approveList');
             const pendingContainer = document.getElementById('pendingManagerList');
 
-            // 1. 総務が本来処理すべきもの（上長承認済 or 取消依頼）
             const readyToApprove = list.filter(item => item.status === '上長承認' || item.status === '仮取り消し');
-            
-            // 2. 上長が未承認のもの（仮申請）
             const pendingManager = list.filter(item => item.status === '仮申請');
 
-            // 完全に何もない場合は自動クローズ
             if (readyToApprove.length === 0 && pendingManager.length === 0) {
                 approveContainer.innerHTML = `<div class="bg-red-50 border border-red-200 p-6 rounded-lg text-center fade-in">
                     <p class="text-red-700 font-bold text-lg mb-1">🎉 すべての処理が完了しました！</p>
                     <p class="text-red-600 text-xs">画面を閉じます...</p>
                 </div>`;
                 pendingContainer.innerHTML = '';
-                setTimeout(() => { if(woff.isLoggedIn()) woff.closeWindow(); }, 2000);
+                setTimeout(() => { if(typeof woff !== 'undefined' && woff.isLoggedIn && woff.isLoggedIn()) woff.closeWindow(); }, 2000);
                 return;
             }
 
-            // === 最終確認待ち一覧の描画 ===
+            // ヘルパー関数：カードの中身（詳細情報）を生成
+            const buildCardContent = (item) => `
+                <div class="grid grid-cols-2 gap-2 text-sm text-gray-700 mb-4 bg-gray-50 p-3 rounded">
+                    <div><span class="font-bold text-gray-500 text-xs block mb-0.5">種別</span>${item.type || '未指定'}</div>
+                    <div><span class="font-bold text-gray-500 text-xs block mb-0.5">区分</span>${item.category}</div>
+                    
+                    <div class="col-span-2">
+                        <span class="font-bold text-gray-500 text-xs block mb-0.5">対象日時</span>
+                        ${item.startDate} <span class="text-gray-500">(${item.startTime} ～ ${item.endTime})</span>
+                    </div>
+                    
+                    ${item.compDate ? `
+                    <div class="col-span-2">
+                        <span class="font-bold text-red-400 text-xs block mb-0.5">振替対象日</span>
+                        <span class="font-bold text-red-600">${item.compDate}</span>
+                    </div>` : ''}
+                    
+                    <div class="col-span-2 mt-1">
+                        <span class="font-bold text-gray-500 text-xs block mb-0.5">理由</span>
+                        <div class="whitespace-pre-wrap">${item.reason || 'なし'}</div>
+                    </div>
+                </div>
+            `;
+
             if (readyToApprove.length === 0) {
                 approveContainer.innerHTML = `<div class="bg-white border border-gray-200 p-4 rounded-lg text-center shadow-sm">
                     <p class="text-gray-500 text-sm font-bold">総務の処理待ち申請はありません</p>
                 </div>`;
             } else {
                 approveContainer.innerHTML = readyToApprove.map(item => `
-                    <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-100 border-l-4 border-red-500" id="card-${item.uid}">
-                        <div class="flex justify-between items-center mb-2">
-                            <span class="font-bold text-gray-800">${item.userName}</span>
+                    <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200 border-l-4 border-l-red-500" id="card-${item.uid}">
+                        <div class="flex justify-between items-center mb-3">
+                            <span class="font-bold text-gray-800 text-lg">${item.userName}</span>
                             <span class="text-xs font-bold text-red-600 bg-red-50 px-2 py-1 rounded-full border border-red-100">${item.status}</span>
                         </div>
-                        <p class="text-sm text-gray-600 mb-1">区分: ${item.category}</p>
-                        <p class="text-sm text-gray-600 mb-3">対象: ${item.startDate}</p>
-                        <button id="btn-${item.uid}" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold rounded-md py-2 transition shadow disabled:bg-gray-400" 
+                        
+                        ${buildCardContent(item)}
+
+                        <button id="btn-${item.uid}" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold rounded-md py-3 transition shadow disabled:bg-gray-400" 
                             onclick="approveRequest('${item.uid}')">${item.status === '仮取り消し' ? '取消を承認する' : '確定承認する'}</button>
                     </div>
                 `).join('');
             }
 
-            // === 上長未承認一覧の描画 ===
             if (pendingManager.length === 0) {
                 pendingContainer.innerHTML = `<div class="bg-transparent p-2 text-center">
                     <p class="text-gray-400 text-xs">現在、上長未承認の申請はありません</p>
                 </div>`;
             } else {
                 pendingContainer.innerHTML = pendingManager.map(item => `
-                    <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-100 border-l-4 border-gray-400" id="card-${item.uid}">
-                        <div class="flex justify-between items-center mb-2">
-                            <span class="font-bold text-gray-800">${item.userName}</span>
+                    <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200 border-l-4 border-l-gray-400" id="card-${item.uid}">
+                        <div class="flex justify-between items-center mb-3">
+                            <span class="font-bold text-gray-800 text-lg">${item.userName}</span>
                             <span class="text-xs font-bold text-gray-600 bg-gray-100 px-2 py-1 rounded-full border border-gray-200">上長待ち</span>
                         </div>
-                        <p class="text-sm text-gray-600 mb-1">区分: ${item.category}</p>
-                        <p class="text-sm text-gray-600 mb-3">対象: ${item.startDate}</p>
-                        <button id="btn-${item.uid}" class="w-full bg-gray-500 hover:bg-red-600 text-white font-bold rounded-md py-2 transition shadow disabled:bg-gray-400 text-sm" 
+                        
+                        ${buildCardContent(item)}
+
+                        <button id="btn-${item.uid}" class="w-full bg-gray-500 hover:bg-red-600 text-white font-bold rounded-md py-3 transition shadow disabled:bg-gray-400 text-sm" 
                             onclick="approveRequest('${item.uid}')">特権で強制承認する</button>
                     </div>
                 `).join('');
