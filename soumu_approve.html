@@ -31,6 +31,8 @@
                 <input type="text" id="userName" class="flex-1 border border-gray-300 rounded p-2 text-sm" placeholder="漢字で氏名を入力">
                 <button onclick="authenticateByName()" class="bg-red-600 hover:bg-red-700 text-white font-bold px-4 rounded shadow">連携</button>
             </div>
+            <!-- ここにデバッグ情報が出現します -->
+            <div id="debugLogArea"></div>
         </div>
 
         <section id="approveArea" class="hidden">
@@ -53,38 +55,49 @@
         
         let currentUser = { id: "", name: "", role: "" };
 
-        // 【完全修正】 window.onload を撤廃し、スクリプト実行直後に初期化をスタートする
-        async function initializeWoff() {
+        // 🚨 画面上にエラー原因を表示するためのヘルパー関数
+        function showErrorLog(message, errDetails = "") {
+            const authArea = document.getElementById('authArea');
+            authArea.classList.remove('hidden');
+            
+            const logArea = document.getElementById('debugLogArea');
+            const errText = errDetails ? JSON.stringify(errDetails, Object.getOwnPropertyNames(errDetails)) : "";
+            
+            logArea.innerHTML = `<div class="mt-4 p-3 bg-red-50 border border-red-300 rounded text-xs text-red-700 break-all">
+                <span class="font-bold block mb-1">【デバッグ情報】</span>
+                ${message}<br><span class="text-gray-500 mt-1 block">${errText}</span>
+            </div>`;
+            showLoading(false);
+        }
+
+        // 確実な読み込みイベントから処理をスタート
+        window.addEventListener('load', () => {
             if (typeof woff === 'undefined') {
-                document.getElementById('authArea').classList.remove('hidden');
+                showErrorLog("WOFF SDKが読み込まれていません。通信環境を確認してください。");
                 return;
             }
 
-            try {
-                // 1. 待たずにすぐ初期化
-                await woff.init({ woffId: WOFF_ID });
-                
-                // 2. ログインチェック
-                if (!woff.isLoggedIn()) {
-                    woff.login(); // 未ログインならログイン画面へ（自動で画面が遷移します）
-                    return;
-                }
-                
-                // 3. プロファイル取得
-                const profile = await woff.getProfile();
-                currentUser.id = profile.userId;
-                
-                // 4. データ取得開始
-                initApp();
-                
-            } catch (error) {
-                console.error("WOFF Initialization Error:", error);
-                document.getElementById('authArea').classList.remove('hidden');
-            }
-        }
-
-        // ここで即座に実行！
-        initializeWoff();
+            woff.init({ woffId: WOFF_ID })
+                .then(() => {
+                    if (!woff.isLoggedIn()) {
+                        // 未ログインならログインを促す
+                        woff.login();
+                    } else {
+                        // ログイン済みならプロファイルを取得
+                        woff.getProfile()
+                            .then(profile => {
+                                currentUser.id = profile.userId;
+                                initApp(); // 成功したらGASへ
+                            })
+                            .catch(err => {
+                                showErrorLog("プロファイルの取得に失敗しました。", err);
+                            });
+                    }
+                })
+                .catch(err => {
+                    showErrorLog("WOFFの初期化(init)に失敗しました。WOFF IDに誤りがないか確認してください。", err);
+                });
+        });
 
         async function fetchGasPost(action, payload) {
             const res = await fetch(GAS_URL, {
@@ -106,9 +119,9 @@
                     currentUser.name = json.data.userName;
                     currentUser.role = json.data.role;
                     verifyRoleAndLoad();
-                } else throw new Error("ユーザー不明");
+                } else throw new Error("マスタにユーザー情報が存在しません");
             } catch (e) {
-                document.getElementById('authArea').classList.remove('hidden');
+                showErrorLog("GASとの通信、またはユーザー情報の取得に失敗しました。", e.message);
             } finally { showLoading(false); }
         }
 
