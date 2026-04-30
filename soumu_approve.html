@@ -75,23 +75,17 @@
                 return;
             }
 
+            // 修正箇所：不要な分岐を消し、init -> getProfile へ一本化
             woff.init({ woffId: WOFF_ID })
                 .then(() => {
-                    if (!woff.isLoggedIn()) {
-                        woff.login();
-                    } else {
-                        woff.getProfile()
-                            .then(profile => {
-                                currentUser.id = profile.userId;
-                                initApp();
-                            })
-                            .catch(err => {
-                                showErrorLog("プロファイルの取得に失敗しました。", err);
-                            });
-                    }
+                    return woff.getProfile();
+                })
+                .then(profile => {
+                    currentUser.id = profile.userId;
+                    initApp();
                 })
                 .catch(err => {
-                    showErrorLog("WOFFの初期化(init)に失敗しました。WOFF IDに誤りがないか確認してください。", err);
+                    showErrorLog("WOFFの初期化またはプロファイルの取得に失敗しました。WOFF IDに誤りがないか確認してください。", err);
                 });
         });
 
