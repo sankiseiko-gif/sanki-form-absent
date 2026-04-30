@@ -49,15 +49,15 @@
         
         let currentUser = { id: "", name: "", role: "" };
 
-        window.onload = () => {
+　　　　window.onload = () => {
             const timeoutId = setTimeout(() => {
                 if(!currentUser.id) document.getElementById('authArea').classList.remove('hidden');
             }, 5000);
 
-            // 【修正済】スマホでの連携エラーを防ぐための堅牢な処理
-            if (typeof woff !== 'undefined') {
-                woff.init({ woffId: WOFF_ID }).then(() => {
-                    if (!woff.isLoggedIn()) { woff.login(); return; }
+            // 修正箇所：woff.login()を削除し、直接getProfileを返す
+            if (typeof woff !== 'undefined' && woff.init) {
+                woff.init({ woffId: WOFF_ID })
+                .then(() => {
                     return woff.getProfile();
                 }).then(profile => {
                     if (profile) {
@@ -65,13 +65,16 @@
                         currentUser.id = profile.userId;
                         initApp();
                     }
-                }).catch(() => { clearTimeout(timeoutId); document.getElementById('authArea').classList.remove('hidden'); });
+                }).catch(() => { 
+                    clearTimeout(timeoutId); 
+                    document.getElementById('authArea').classList.remove('hidden'); 
+                });
             } else {
                 clearTimeout(timeoutId);
                 document.getElementById('authArea').classList.remove('hidden');
             }
         };
-
+        
         async function fetchGasPost(action, payload) {
             const res = await fetch(GAS_URL, {
                 method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify({ action, payload })
