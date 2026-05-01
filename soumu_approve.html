@@ -163,8 +163,8 @@
             const approveContainer = document.getElementById('approveList');
             const pendingContainer = document.getElementById('pendingManagerList');
 
-            const readyToApprove = list.filter(item => item.status === '上長承認' || item.status === '仮取り消し');
-            const pendingManager = list.filter(item => item.status === '仮申請');
+            const readyToApprove = list.filter(item => item.status === '申請中' || item.status === '仮取り消し');
+            const pendingManager = list.filter(item => item.status === '申請中');
 
             if (readyToApprove.length === 0 && pendingManager.length === 0) {
                 approveContainer.innerHTML = `<div class="bg-red-50 border border-red-200 p-6 rounded-lg text-center fade-in">
