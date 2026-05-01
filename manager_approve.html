@@ -141,7 +141,7 @@
         // 【修正済】種別、区分、時間、理由、振替対象日を詳細表示するレイアウトに変更
         function renderApproveList(list) {
             const container = document.getElementById('approveList');
-            const filtered = list.filter(item => item.status === '仮申請' && item.managerId === currentUser.id);
+            const filtered = list.filter(item => item.status === '申請中' && item.managerId === currentUser.id);
 
             if (filtered.length === 0) {
                 container.innerHTML = `<div class="bg-blue-50 border border-blue-200 p-6 rounded-lg text-center fade-in">
