@@ -138,7 +138,7 @@
         function renderSchedule() {
             const target = document.getElementById('targetDate').value;
             const rows = document.getElementById('schedule-rows');
-            const filtered = allData.filter(i => i.startDate === target && i.status === '承認済み');
+            const filtered = allData.filter(i => i.startDate === target && i.status === '完了'|| i.status === '仮申請');
             
             if (filtered.length === 0) {
                 rows.innerHTML = '<div class="p-10 text-center text-sm text-gray-400">この日の予定はありません</div>';
@@ -177,7 +177,7 @@
         }
 
         function renderProxy() {
-            const list = allData.filter(i => i.status === '仮申請').sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+            const list = allData.filter(i => i.status === '申請中').sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
             const body = document.getElementById('proxy-table-body');
             document.getElementById('proxy-empty').classList.toggle('hidden', list.length > 0);
             
