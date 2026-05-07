@@ -3,21 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>上長承認管理</title>
+    <title>承認管理</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://static.worksmobile.net/static/wm/woff/edge/3.7.1/sdk.js"></script>
     <style>
         body { font-family: sans-serif; }
         .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        .fade-in { animation: fadeIn 0.5s ease-in-out forwards; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800">
 
     <div class="bg-blue-600 text-white text-center py-4 shadow-md mb-4">
-        <h1 class="font-bold text-lg">休暇申請 - 承認管理 (上長用)</h1>
+        <h1 class="text-lg font-bold">申請 承認管理</h1>
+        <p class="text-xs text-blue-200 mt-1" id="userNameDisplay">読込中...</p>
     </div>
 
     <div id="loading" class="fixed inset-0 bg-white bg-opacity-80 flex justify-center items-center z-50 hidden">
@@ -25,59 +24,61 @@
     </div>
 
     <main class="px-4 pb-8 max-w-lg mx-auto">
-        <div id="authArea" class="bg-white p-5 rounded-lg shadow-sm border border-red-200 mb-5 hidden">
-            <p class="text-sm font-bold text-red-600 mb-3">自動認証に失敗しました。<br>権限を確認するため、氏名を入力して連携してください。</p>
-            <div class="flex gap-2">
-                <input type="text" id="userName" class="flex-1 border border-gray-300 rounded p-2 text-sm" placeholder="漢字で氏名を入力">
-                <button onclick="authenticateByName()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 rounded shadow">連携</button>
-            </div>
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="font-bold text-gray-700">承認待ち一覧</h2>
+            <button onclick="fetchListData()" class="text-sm bg-white border border-gray-300 text-gray-600 px-3 py-1.5 rounded shadow-sm hover:bg-gray-50 font-bold">🔄 更新</button>
         </div>
 
-        <section id="approveArea" class="hidden">
-            <div class="flex justify-between items-center mb-3">
-                <h3 class="font-bold text-gray-700">承認待ち一覧</h3>
-                <span class="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-bold border border-blue-200" id="approverName"></span>
-            </div>
-            <div id="approveList" class="space-y-4"></div>
-        </section>
+        <div id="approveList" class="space-y-4"></div>
     </main>
 
     <script>
-
         const GAS_URL = "https://script.google.com/macros/s/AKfycbxwEuHjXVsUjbhH9Bo5yQ3vgln5LM615sKftO5pQgzjpPzpRvXuxMcqmyNTNhEhaQeZ/exec";
-        const WOFF_ID = "GQbQXFkHr0TDS1PhPqY08Q"; 
+        const WOFF_ID = "RAj4F7BMV-oVhCo-nRSaXw"; 
         
-        let currentUser = { id: "", name: "", role: "" };
+        // 権限(role)は使わないため、idとnameのみに変更
+        let currentUser = { id: "", name: "" };
 
-　　　　window.onload = () => {
-            const timeoutId = setTimeout(() => {
-                if(!currentUser.id) document.getElementById('authArea').classList.remove('hidden');
-            }, 5000);
-
-            // 修正箇所：woff.login()を削除し、直接getProfileを返す
+        window.onload = () => {
             if (typeof woff !== 'undefined' && woff.init) {
                 woff.init({ woffId: WOFF_ID })
-                .then(() => {
-                    return woff.getProfile();
-                }).then(profile => {
-                    if (profile) {
-                        clearTimeout(timeoutId);
-                        currentUser.id = profile.userId;
-                        initApp();
-                    }
-                }).catch(() => { 
-                    clearTimeout(timeoutId); 
-                    document.getElementById('authArea').classList.remove('hidden'); 
-                });
+                .then(() => woff.getProfile())
+                .then(profile => {
+                    currentUser.id = profile.userId;
+                    initApp();
+                })
+                .catch(err => alert("WOFF初期化エラー。LINE WORKS環境で開いてください。"));
             } else {
-                clearTimeout(timeoutId);
-                document.getElementById('authArea').classList.remove('hidden');
+                alert("WOFF SDKが読み込めません。");
             }
-        };
-        
+        }
+
+        async function initApp() {
+            showLoading(true, "ユーザー確認中...");
+            try {
+                const json = await fetchGasPost('getUser', { userId: currentUser.id });
+                if (json.status === 'success' && json.data.userName) {
+                    currentUser.name = json.data.userName;
+                    document.getElementById('userNameDisplay').innerText = `${currentUser.name} さん`;
+                    fetchListData();
+                } else {
+                    document.getElementById('userNameDisplay').innerText = "未登録ユーザー";
+                    alert("マスタに登録されていません。");
+                }
+            } catch (e) {
+                alert("ユーザー情報の取得に失敗しました。");
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        // ▼ スマホの通信エラー対策（redirect: "follow" を追加）
         async function fetchGasPost(action, payload) {
             const res = await fetch(GAS_URL, {
-                method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify({ action, payload })
+                method: "POST",
+                headers: { "Content-Type": "text/plain" },
+                body: JSON.stringify({ action: action, payload: payload }),
+                redirect: "follow" // スマホブラウザでのリダイレクト遮断を防ぐ
             });
             return res.json();
         }
@@ -87,117 +88,87 @@
             document.getElementById('loading').style.display = show ? 'flex' : 'none';
         }
 
-        async function initApp() {
-            showLoading(true, "権限を確認中...");
+        async function fetchListData() {
+            showLoading(true, "リスト取得中...");
             try {
-                const json = await fetchGasPost('getUser', { userId: currentUser.id });
-                if (json.status === 'success' && json.data.userName) {
-                    currentUser.name = json.data.userName;
-                    currentUser.role = json.data.role;
-                    verifyRoleAndLoad();
-                } else throw new Error("ユーザー不明");
+                // 権限のパラメータ送信を削除
+                const json = await fetchGasPost('getList', { userId: currentUser.id });
+                if (json.status === 'success') {
+                    // 「仮申請」または「取消申請中」のものだけを抽出
+                    const pendingList = json.data.filter(item => item.status === '仮申請' || item.status === '取消申請中');
+                    renderApproveList(pendingList);
+                } else {
+                    throw new Error(json.message);
+                }
             } catch (e) {
-                document.getElementById('authArea').classList.remove('hidden');
-            } finally { showLoading(false); }
-        }
-
-        async function authenticateByName() {
-            const nameInput = document.getElementById('userName').value.trim();
-            if (!nameInput) return alert("氏名を入力してください。");
-            showLoading(true, "連携中...");
-            try {
-                const json = await fetchGasPost('getUserByName', { userName: nameInput });
-                if (json.status === 'success' && json.data) {
-                    currentUser.id = json.data.userId;
-                    currentUser.name = json.data.userName;
-                    currentUser.role = json.data.role;
-                    verifyRoleAndLoad();
-                } else alert("マスタに該当する名前が見つかりません。");
-            } catch (e) { alert("通信エラー"); }
-            finally { showLoading(false); }
-        }
-
-        function verifyRoleAndLoad() {
-            if (currentUser.role === '上長' || currentUser.role === '総務') {
-                document.getElementById('authArea').classList.add('hidden');
-                document.getElementById('approveArea').classList.remove('hidden');
-                document.getElementById('approverName').innerText = currentUser.name;
-                fetchListData();
-            } else {
-                alert("この画面へアクセスする権限がありません。");
-                if (typeof woff !== 'undefined' && woff.isLoggedIn && woff.isLoggedIn()) woff.closeWindow();
+                alert("リスト取得失敗: " + e.message);
+            } finally {
+                showLoading(false);
             }
         }
 
-        async function fetchListData() {
-            showLoading(true, "リストを取得中...");
-            try {
-                const json = await fetchGasPost('getList', { userId: currentUser.id, role: '上長' });
-                if (json.status === 'success') renderApproveList(json.data);
-            } catch (e) { alert("取得失敗"); } 
-            finally { showLoading(false); }
-        }
-
-        // 【修正済】種別、区分、時間、理由、振替対象日を詳細表示するレイアウトに変更
         function renderApproveList(list) {
             const container = document.getElementById('approveList');
-            const filtered = list.filter(item => item.status === '申請中' && item.managerId === currentUser.id);
-
-            if (filtered.length === 0) {
-                container.innerHTML = `<div class="bg-blue-50 border border-blue-200 p-6 rounded-lg text-center fade-in">
-                    <p class="text-blue-700 font-bold text-lg mb-1">🎉 承認待ちの申請はありません</p>
-                </div>`;
-                setTimeout(() => { if(typeof woff !== 'undefined' && woff.isLoggedIn && woff.isLoggedIn()) woff.closeWindow(); }, 2000);
+            if (list.length === 0) {
+                container.innerHTML = '<div class="bg-white p-6 rounded-lg text-center text-gray-500 shadow-sm border border-gray-100 font-bold">現在、承認待ちの申請はありません</div>';
                 return;
             }
 
-            container.innerHTML = filtered.map(item => `
-                <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200 border-l-4 border-l-blue-500" id="card-${item.uid}">
-                    <div class="flex justify-between items-center mb-3">
-                        <span class="font-bold text-gray-800 text-lg">${item.userName}</span>
-                        <span class="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-full border">${item.status}</span>
-                    </div>
+            container.innerHTML = list.map(item => `
+                <div class="bg-white p-4 rounded-lg shadow-sm border-t-4 ${item.status === '取消申請中' ? 'border-red-400' : 'border-blue-500'} relative">
+                    ${item.status === '取消申請中' ? '<span class="absolute top-2 right-2 bg-red-100 text-red-600 text-[10px] font-bold px-2 py-0.5 rounded border border-red-200">取消依頼</span>' : ''}
                     
-                    <div class="grid grid-cols-2 gap-2 text-sm text-gray-700 mb-4 bg-gray-50 p-3 rounded">
-                        <div><span class="font-bold text-gray-500 text-xs block mb-0.5">種別</span>${item.type || '未指定'}</div>
-                        <div><span class="font-bold text-gray-500 text-xs block mb-0.5">区分</span>${item.category}</div>
-                        
+                    <div class="flex items-center gap-2 mb-3">
+                        <div class="bg-gray-100 w-10 h-10 rounded-full flex items-center justify-center font-bold text-gray-500 shrink-0 text-sm">
+                            ${item.applicantName.charAt(0)}
+                        </div>
+                        <div>
+                            <p class="font-bold text-gray-800 leading-tight">${item.applicantName}</p>
+                            <p class="text-xs text-gray-500">${item.category}</p>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-y-2 text-sm text-gray-700 bg-gray-50 p-3 rounded mb-3 border border-gray-100">
                         <div class="col-span-2">
                             <span class="font-bold text-gray-500 text-xs block mb-0.5">対象日時</span>
-                            ${item.startDate} <span class="text-gray-500">(${item.startTime} ～ ${item.endTime})</span>
+                            ${item.startDate} ${item.endDate && item.startDate !== item.endDate ? `～ ${item.endDate}` : ''}
+                            <br><span class="text-blue-600 font-bold">${item.startTime} ～ ${item.endTime}</span>
                         </div>
-                        
-                        ${item.compDate ? `
-                        <div class="col-span-2">
-                            <span class="font-bold text-blue-500 text-xs block mb-0.5">振替対象日</span>
-                            <span class="font-bold text-blue-700">${item.compDate}</span>
-                        </div>` : ''}
-                        
+                        ${item.compDate ? `<div class="col-span-2 border-t border-gray-200 pt-2 mt-1"><span class="font-bold text-blue-500 text-xs block mb-0.5">振替対象日</span>${item.compDate}</div>` : ''}
                         <div class="col-span-2 mt-1">
                             <span class="font-bold text-gray-500 text-xs block mb-0.5">理由</span>
                             <div class="whitespace-pre-wrap">${item.reason || 'なし'}</div>
                         </div>
                     </div>
 
-                    <button id="btn-${item.uid}" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-md py-3 transition shadow disabled:bg-gray-400" 
-                        onclick="approveRequest('${item.uid}')">承認する</button>
+                    <button id="btn-${item.uid}" class="w-full ${item.status === '取消申請中' ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-600 hover:bg-blue-700'} text-white font-bold rounded-md py-3 transition shadow disabled:bg-gray-400" 
+                        onclick="approveRequest('${item.uid}', '${item.status}')">
+                        ${item.status === '取消申請中' ? '取消を承認する' : '承認する'}
+                    </button>
                 </div>
             `).join('');
         }
 
-        async function approveRequest(uid) {
-            if(!confirm("承認しますか？")) return;
+        async function approveRequest(uid, currentStatus) {
+            const confirmMsg = currentStatus === '取消申請中' ? "取消を承認しますか？" : "承認しますか？";
+            if(!confirm(confirmMsg)) return;
+            
             const btn = document.getElementById(`btn-${uid}`);
             btn.disabled = true;
             showLoading(true, "処理中...");
             try {
-                const json = await fetchGasPost('approve', { uid: uid, execUserName: currentUser.name, execRole: currentUser.role });
+                // 実行者の権限(execRole)を削除。名前のみ送信。
+                const json = await fetchGasPost('approve', { uid: uid, execUserName: currentUser.name });
                 if (json.status === 'success') { 
                     btn.innerText = "✅ 承認完了";
                     btn.classList.replace('bg-blue-600', 'bg-green-500');
+                    btn.classList.replace('bg-red-500', 'bg-green-500');
                     setTimeout(() => fetchListData(), 1000);
                 } else throw new Error(json.message);
-            } catch (e) { alert("エラー: " + e.message); btn.disabled = false; }
+            } catch (e) { 
+                alert("エラー: " + e.message); 
+                btn.disabled = false; 
+            }
             finally { showLoading(false); }
         }
     </script>
