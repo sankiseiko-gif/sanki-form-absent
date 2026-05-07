@@ -2,259 +2,237 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>総務承認管理</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【総務用】申請管理システム</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://static.worksmobile.net/static/wm/woff/edge/3.7.1/sdk.js"></script>
     <style>
-        body { font-family: sans-serif; }
-        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        .fade-in { animation: fadeIn 0.5s ease-in-out forwards; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+        .tab-active { border-bottom: 3px solid #2563eb; color: #2563eb; }
+        .schedule-grid { display: grid; grid-template-columns: 100px 1fr; border-top: 1px solid #e5e7eb; }
+        .time-label { font-size: 10px; color: #9ca3af; text-align: center; }
+        .bar-container { position: relative; height: 32px; background: #f9fafb; border-bottom: 1px solid #f3f4f6; }
+        .absence-bar { position: absolute; height: 20px; top: 6px; border-radius: 4px; opacity: 0.9; }
     </style>
 </head>
-<body class="bg-gray-100 text-gray-800">
+<body class="bg-gray-50 text-gray-800 min-h-screen">
 
-    <div class="bg-red-700 text-white text-center py-4 shadow-md mb-4">
-        <h1 class="font-bold text-lg">休暇申請 - 最終承認 (総務用)</h1>
-    </div>
-
-    <div id="loading" class="fixed inset-0 bg-white bg-opacity-80 flex justify-center items-center z-50 hidden">
-        <div class="flex flex-col items-center"><div class="loader mb-2"></div><p id="loadingText" class="text-sm text-gray-600 font-bold">通信中...</p></div>
-    </div>
-
-    <main class="px-4 pb-8 max-w-lg mx-auto">
-        <div id="authArea" class="bg-white p-5 rounded-lg shadow-sm border border-red-200 mb-5 hidden">
-            <p class="text-sm font-bold text-red-600 mb-3">自動認証に失敗しました。<br>権限を確認するため、氏名を入力して連携してください。</p>
-            <div class="flex gap-2">
-                <input type="text" id="userName" class="flex-1 border border-gray-300 rounded p-2 text-sm" placeholder="漢字で氏名を入力">
-                <button onclick="authenticateByName()" class="bg-red-600 hover:bg-red-700 text-white font-bold px-4 rounded shadow">連携</button>
-            </div>
-            <!-- ここにデバッグ情報が出現します -->
-            <div id="debugLogArea"></div>
+    <header class="bg-white shadow-sm sticky top-0 z-10">
+        <div class="max-w-5xl mx-auto px-4 py-4 flex justify-between items-center">
+            <h1 class="text-xl font-bold text-gray-900">総務管理ダッシュボード</h1>
+            <button onclick="fetchAllData()" class="bg-gray-100 hover:bg-gray-200 px-4 py-2 rounded text-sm font-bold transition">最新の状態に更新</button>
         </div>
+        <div class="max-w-5xl mx-auto px-4 flex gap-8">
+            <button onclick="switchTab('basic')" id="tabBtn-basic" class="py-3 font-bold transition tab-active">基本一覧</button>
+            <button onclick="switchTab('today')" id="tabBtn-today" class="py-3 font-bold text-gray-400 transition">本日の予定</button>
+            <button onclick="switchTab('proxy')" id="tabBtn-proxy" class="py-3 font-bold text-gray-400 transition">代行承認</button>
+        </div>
+    </header>
 
-        <section id="approveArea" class="hidden">
-            <div class="flex justify-between items-center mb-3">
-                <h3 class="font-bold text-gray-700">最終確認待ち一覧</h3>
-                <span class="text-xs bg-red-100 text-red-700 px-2 py-1 rounded-full font-bold border border-red-200" id="approverName"></span>
+    <main class="max-w-5xl mx-auto px-4 py-6">
+        <section id="tab-basic" class="space-y-8">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div><h3 class="font-bold mb-3 flex items-center gap-2">⏳ 申請中 <span id="count-apply" class="text-xs bg-yellow-100 text-yellow-700 px-2 rounded-full">0</span></h3><div id="list-apply" class="space-y-3"></div></div>
+                <div><h3 class="font-bold mb-3 flex items-center gap-2">✅ 完了 <span id="count-done" class="text-xs bg-green-100 text-green-700 px-2 rounded-full">0</span></h3><div id="list-done" class="space-y-3"></div></div>
+                <div><h3 class="font-bold mb-3 flex items-center gap-2">❌ 取消完了 <span id="count-cancel" class="text-xs bg-red-100 text-red-700 px-2 rounded-full">0</span></h3><div id="list-cancel" class="space-y-3"></div></div>
             </div>
-            <div id="approveList" class="space-y-4 mb-8"></div>
+        </section>
 
-            <div class="flex justify-between items-center mb-3 pt-4 border-t border-gray-300">
-                <h3 class="font-bold text-gray-600">上長未承認 (確認用)</h3>
+        <section id="tab-today" class="hidden">
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                <div class="flex items-center gap-4 mb-6">
+                    <button onclick="changeDate(-1)" class="p-2 border rounded hover:bg-gray-50">◀</button>
+                    <input type="date" id="targetDate" class="font-bold border-none text-lg outline-none" onchange="renderSchedule()">
+                    <button onclick="changeDate(1)" class="p-2 border rounded hover:bg-gray-50">▶</button>
+                    <button onclick="setToToday()" class="text-sm text-blue-600 font-bold ml-2">今日へ戻す</button>
+                </div>
+                
+                <div class="overflow-x-auto">
+                    <div class="min-w-[600px]">
+                        <div class="schedule-grid py-2">
+                            <div></div>
+                            <div class="flex justify-between px-2">
+                                <span class="time-label">8:30</span>
+                                <span class="time-label">10:30</span>
+                                <span class="time-label">12:30</span>
+                                <span class="time-label">14:30</span>
+                                <span class="time-label">16:30</span>
+                                <span class="time-label">17:30</span>
+                            </div>
+                        </div>
+                        <div id="schedule-rows" class="border border-gray-100 rounded bg-white"></div>
+                    </div>
+                </div>
             </div>
-            <div id="pendingManagerList" class="space-y-4"></div>
+        </section>
+
+        <section id="tab-proxy" class="hidden">
+            <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                <table class="w-full text-left">
+                    <thead class="bg-gray-50 border-b border-gray-100 text-sm font-bold text-gray-500">
+                        <tr><th class="px-6 py-4">申請日</th><th class="px-6 py-4">申請者</th><th class="px-6 py-4">内容</th><th class="px-6 py-4 text-right">操作</th></tr>
+                    </thead>
+                    <tbody id="proxy-table-body" class="divide-y divide-gray-100"></tbody>
+                </table>
+                <div id="proxy-empty" class="p-10 text-center text-gray-400 hidden">未承認の申請はありません</div>
+            </div>
         </section>
     </main>
 
     <script>
         const GAS_URL = "https://script.google.com/macros/s/AKfycbxwEuHjXVsUjbhH9Bo5yQ3vgln5LM615sKftO5pQgzjpPzpRvXuxMcqmyNTNhEhaQeZ/exec";
-        const WOFF_ID = "H00GMadPm09uj7QukuKCCw"; 
-    
-        let currentUser = { id: "", name: "", role: "" };
+        let colorMap = {}; // スプレッドシートからの色設定を保存
 
-        function showErrorLog(message, errDetails = "") {
-            const authArea = document.getElementById('authArea');
-            authArea.classList.remove('hidden');
-            
-            const logArea = document.getElementById('debugLogArea');
-            const errText = errDetails ? JSON.stringify(errDetails, Object.getOwnPropertyNames(errDetails)) : "";
-            
-            logArea.innerHTML = `<div class="mt-4 p-3 bg-red-50 border border-red-300 rounded text-xs text-red-700 break-all">
-                <span class="font-bold block mb-1">【デバッグ情報】</span>
-                ${message}<br><span class="text-gray-500 mt-1 block whitespace-pre-wrap">${errText}</span>
-            </div>`;
-            showLoading(false);
-        }
+        // 開始 8.5(8:30), 終了 17.5(17:30), 期間 9時間
+        const HOURS = { start: 8.5, end: 17.5, total: 9 };
 
-        window.addEventListener('load', () => {
-            if (typeof woff === 'undefined') {
-                showErrorLog("WOFF SDKが読み込まれていません。通信環境を確認してください。");
-                return;
-            }
+        window.onload = () => {
+            setToToday();
+            fetchAllData();
+        };
 
-            // 修正箇所：不要な分岐を消し、init -> getProfile へ一本化
-            woff.init({ woffId: WOFF_ID })
-                .then(() => {
-                    return woff.getProfile();
-                })
-                .then(profile => {
-                    currentUser.id = profile.userId;
-                    initApp();
-                })
-                .catch(err => {
-                    showErrorLog("WOFFの初期化またはプロファイルの取得に失敗しました。WOFF IDに誤りがないか確認してください。", err);
-                });
-        });
-
-        async function fetchGasPost(action, payload) {
-            const res = await fetch(GAS_URL, {
-                method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify({ action, payload })
+        function switchTab(tabId) {
+            ['basic', 'today', 'proxy'].forEach(id => {
+                document.getElementById('tab-' + id).classList.toggle('hidden', id !== tabId);
+                document.getElementById('tabBtn-' + id).classList.toggle('tab-active', id === tabId);
+                document.getElementById('tabBtn-' + id).classList.toggle('text-gray-400', id !== tabId);
             });
-            return res.json();
+            if (tabId === 'today') renderSchedule();
         }
 
-        function showLoading(show, text = "通信中...") {
-            document.getElementById('loadingText').textContent = text;
-            document.getElementById('loading').style.display = show ? 'flex' : 'none';
-        }
-
-        async function initApp() {
-            showLoading(true, "権限を確認中...");
+        async function fetchAllData() {
             try {
-                const json = await fetchGasPost('getUser', { userId: currentUser.id });
+                const res = await fetch(GAS_URL, {
+                    method: "POST",
+                    headers: { "Content-Type": "text/plain" },
+                    body: JSON.stringify({ action: "getList", payload: { role: "admin" } })
+                });
+                const json = await res.json();
                 if (json.status === 'success') {
-                    if (json.data && json.data.userName) {
-                        currentUser.name = json.data.userName;
-                        currentUser.role = json.data.role;
-                        verifyRoleAndLoad();
-                    } else {
-                        // 🌟 ここがポイント：取得した本物のIDを表示します
-                        throw new Error(`MasterシートのA列のIDと一致しません。\n\n【WOFFで取得したID】\n${currentUser.id}\n\n👆これをMasterシートのA列にコピペしてください。`);
-                    }
-                } else {
-                    throw new Error(`GASエラー: ${json.message}`);
+                    allData = json.data;
+                    colorMap = json.colors || {}; // ★GASから色設定を受け取る
+                    renderBasic();
+                    renderProxy();
+                    renderSchedule();
                 }
             } catch (e) {
-                showErrorLog("ユーザー情報の照合に失敗しました。", e.message);
-            } finally { showLoading(false); }
-        }
-
-        async function authenticateByName() {
-            const nameInput = document.getElementById('userName').value.trim();
-            if (!nameInput) return alert("氏名を入力してください。");
-            showLoading(true, "連携中...");
-            try {
-                const json = await fetchGasPost('getUserByName', { userName: nameInput });
-                if (json.status === 'success' && json.data) {
-                    currentUser.id = json.data.userId;
-                    currentUser.name = json.data.userName;
-                    currentUser.role = json.data.role;
-                    verifyRoleAndLoad();
-                } else alert("マスタに該当する名前が見つかりません。");
-            } catch (e) { alert("通信エラー"); }
-            finally { showLoading(false); }
-        }
-
-        function verifyRoleAndLoad() {
-            if (currentUser.role === '総務') {
-                document.getElementById('authArea').classList.add('hidden');
-                document.getElementById('approveArea').classList.remove('hidden');
-                document.getElementById('approverName').innerText = currentUser.name;
-                fetchListData();
-            } else {
-                alert("この画面へアクセスする権限がありません。");
-                if (typeof woff !== 'undefined' && woff.closeWindow) woff.closeWindow();
+                console.error("データの取得に失敗しました", e);
             }
         }
 
-        async function fetchListData() {
-            showLoading(true, "リストを取得中...");
-            try {
-                const json = await fetchGasPost('getList', { userId: currentUser.id, role: '総務' });
-                if (json.status === 'success') renderApproveList(json.data);
-            } catch (e) { alert("取得失敗"); } 
-            finally { showLoading(false); }
+        function renderBasic() {
+            const categories = {
+                'apply': allData.filter(i => i.status === '仮申請' || i.status === '上長承認'),
+                'done': allData.filter(i => i.status === '承認済み'),
+                'cancel': allData.filter(i => i.status === '取消済み')
+            };
+
+            for (let key in categories) {
+                document.getElementById(`count-${key}`).innerText = categories[key].length;
+                document.getElementById(`list-${key}`).innerHTML = categories[key].map(i => `
+                    <div class="bg-white p-3 rounded border border-gray-200 text-sm shadow-sm hover:shadow transition">
+                        <div class="font-bold">${i.applicantName}</div>
+                        <div class="text-gray-500">${i.startDate} / ${i.category}</div>
+                    </div>
+                `).join('');
+            }
         }
 
-        function renderApproveList(list) {
-            const approveContainer = document.getElementById('approveList');
-            const pendingContainer = document.getElementById('pendingManagerList');
-
-            const readyToApprove = list.filter(item => item.status === '申請中' || item.status === '仮取り消し');
-            const pendingManager = list.filter(item => item.status === '申請中');
-
-            if (readyToApprove.length === 0 && pendingManager.length === 0) {
-                approveContainer.innerHTML = `<div class="bg-red-50 border border-red-200 p-6 rounded-lg text-center fade-in">
-                    <p class="text-red-700 font-bold text-lg mb-1">🎉 すべての処理が完了しました！</p>
-                    <p class="text-red-600 text-xs">画面を閉じます...</p>
-                </div>`;
-                pendingContainer.innerHTML = '';
-                setTimeout(() => { if(typeof woff !== 'undefined' && woff.closeWindow) woff.closeWindow(); }, 2000);
+        function renderSchedule() {
+            const target = document.getElementById('targetDate').value;
+            const rows = document.getElementById('schedule-rows');
+            const filtered = allData.filter(i => i.startDate === target && i.status === '承認済み');
+            
+            if (filtered.length === 0) {
+                rows.innerHTML = '<div class="p-10 text-center text-sm text-gray-400">この日の予定はありません</div>';
                 return;
             }
 
-            const buildCardContent = (item) => `
-                <div class="grid grid-cols-2 gap-2 text-sm text-gray-700 mb-4 bg-gray-50 p-3 rounded">
-                    <div><span class="font-bold text-gray-500 text-xs block mb-0.5">種別</span>${item.type || '未指定'}</div>
-                    <div><span class="font-bold text-gray-500 text-xs block mb-0.5">区分</span>${item.category}</div>
-                    
-                    <div class="col-span-2">
-                        <span class="font-bold text-gray-500 text-xs block mb-0.5">対象日時</span>
-                        ${item.startDate} <span class="text-gray-500">(${item.startTime} ～ ${item.endTime})</span>
-                    </div>
-                    
-                    ${item.compDate ? `
-                    <div class="col-span-2">
-                        <span class="font-bold text-red-400 text-xs block mb-0.5">振替対象日</span>
-                        <span class="font-bold text-red-600">${item.compDate}</span>
-                    </div>` : ''}
-                    
-                    <div class="col-span-2 mt-1">
-                        <span class="font-bold text-gray-500 text-xs block mb-0.5">理由</span>
-                        <div class="whitespace-pre-wrap">${item.reason || 'なし'}</div>
-                    </div>
-                </div>
-            `;
+            rows.innerHTML = filtered.map(i => {
+                const startDec = timeToDecimal(i.startTime);
+                const endDec = timeToDecimal(i.endTime);
+                
+                // 業務時間(8:30-17:30)外の予定を枠内に収めるためのトリミング処理
+                const s = Math.max(HOURS.start, startDec);
+                const e = Math.min(HOURS.end, endDec);
+                
+                const left = ((s - HOURS.start) / HOURS.total) * 100;
+                const width = ((e - s) / HOURS.total) * 100;
 
-            if (readyToApprove.length === 0) {
-                approveContainer.innerHTML = `<div class="bg-white border border-gray-200 p-4 rounded-lg text-center shadow-sm">
-                    <p class="text-gray-500 text-sm font-bold">総務の処理待ち申請はありません</p>
-                </div>`;
-            } else {
-                approveContainer.innerHTML = readyToApprove.map(item => `
-                    <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200 border-l-4 border-l-red-500" id="card-${item.uid}">
-                        <div class="flex justify-between items-center mb-3">
-                            <span class="font-bold text-gray-800 text-lg">${item.userName}</span>
-                            <span class="text-xs font-bold text-red-600 bg-red-50 px-2 py-1 rounded-full border border-red-100">${item.status}</span>
+                // 欠勤なら区分(category)、それ以外は種別(type)を表示
+                const displayText = (i.type === '欠勤') ? i.category : i.type;
+
+                // ★スプレッドシートの色設定があれば使用し、無ければデフォルトの青(#3b82f6)
+                const bgColor = colorMap[displayText] || '#3b82f6';
+
+                return `
+                    <div class="schedule-grid items-center h-12 hover:bg-gray-50 transition">
+                        <div class="px-3 text-xs font-bold border-r border-gray-100 truncate text-gray-700">${i.applicantName}</div>
+                        <div class="bar-container bg-transparent">
+                            <div class="absence-bar flex items-center justify-center text-[10px] text-white font-bold shadow-sm overflow-hidden whitespace-nowrap" 
+                                 style="left: ${left}%; width: ${width}%; background-color: ${bgColor};">
+                                ${displayText}
+                            </div>
                         </div>
-                        
-                        ${buildCardContent(item)}
-
-                        <button id="btn-${item.uid}" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold rounded-md py-3 transition shadow disabled:bg-gray-400" 
-                            onclick="approveRequest('${item.uid}')">${item.status === '仮取り消し' ? '取消を承認する' : '確定承認する'}</button>
                     </div>
-                `).join('');
-            }
+                `;
+            }).join('');
+        }
 
-            if (pendingManager.length === 0) {
-                pendingContainer.innerHTML = `<div class="bg-transparent p-2 text-center">
-                    <p class="text-gray-400 text-xs">現在、上長未承認の申請はありません</p>
-                </div>`;
-            } else {
-                pendingContainer.innerHTML = pendingManager.map(item => `
-                    <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200 border-l-4 border-l-gray-400" id="card-${item.uid}">
-                        <div class="flex justify-between items-center mb-3">
-                            <span class="font-bold text-gray-800 text-lg">${item.userName}</span>
-                            <span class="text-xs font-bold text-gray-600 bg-gray-100 px-2 py-1 rounded-full border border-gray-200">上長待ち</span>
-                        </div>
-                        
-                        ${buildCardContent(item)}
+        function renderProxy() {
+            const list = allData.filter(i => i.status === '仮申請').sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+            const body = document.getElementById('proxy-table-body');
+            document.getElementById('proxy-empty').classList.toggle('hidden', list.length > 0);
+            
+            body.innerHTML = list.map(i => `
+                <tr class="hover:bg-gray-50 transition">
+                    <td class="px-6 py-4 text-xs text-gray-500">${i.startDate}</td>
+                    <td class="px-6 py-4 font-bold text-sm text-gray-800">${i.applicantName}</td>
+                    <td class="px-6 py-4 text-sm text-gray-600">${i.category} (${i.startTime}～)</td>
+                    <td class="px-6 py-4 text-right">
+                        <button onclick="proxyApprove('${i.uid}')" class="bg-blue-600 text-white text-xs px-4 py-2 rounded font-bold shadow-sm hover:bg-blue-700 hover:shadow transition">代行承認</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
 
-                        <button id="btn-${item.uid}" class="w-full bg-gray-500 hover:bg-red-600 text-white font-bold rounded-md py-3 transition shadow disabled:bg-gray-400 text-sm" 
-                            onclick="approveRequest('${item.uid}')">特権で強制承認する</button>
-                    </div>
-                `).join('');
+        async function proxyApprove(uid) {
+            if (!confirm("総務としてこの申請を承認しますか？")) return;
+            try {
+                const res = await fetch(GAS_URL, {
+                    method: "POST",
+                    headers: { "Content-Type": "text/plain" },
+                    body: JSON.stringify({ action: "approve", payload: { uid: uid, execUserName: "総務" } })
+                });
+                const json = await res.json();
+                if (json.status === 'success') { 
+                    alert("承認しました"); 
+                    fetchAllData(); 
+                } else {
+                    alert("エラー: " + json.message);
+                }
+            } catch (e) {
+                alert("通信エラーが発生しました。");
             }
         }
 
-        async function approveRequest(uid) {
-            if(!confirm("この申請を承認・確定しますか？")) return;
-            const btn = document.getElementById(`btn-${uid}`);
-            btn.disabled = true;
-            showLoading(true, "処理中...");
-            try {
-                const json = await fetchGasPost('approve', { uid: uid, execUserName: currentUser.name, execRole: currentUser.role });
-                if (json.status === 'success') { 
-                    btn.innerText = "✅ 処理完了";
-                    btn.classList.replace('bg-red-600', 'bg-green-500');
-                    btn.classList.replace('bg-gray-500', 'bg-green-500');
-                    setTimeout(() => fetchListData(), 1000);
-                } else throw new Error(json.message);
-            } catch (e) { alert("エラー: " + e.message); btn.disabled = false; }
-            finally { showLoading(false); }
+        function timeToDecimal(t) {
+            if (!t) return 0;
+            const [h, m] = t.split(':').map(Number);
+            return h + (m / 60);
+        }
+
+        function changeDate(days) {
+            const d = new Date(document.getElementById('targetDate').value);
+            d.setDate(d.getDate() + days);
+            document.getElementById('targetDate').value = d.toISOString().split('T')[0];
+            renderSchedule();
+        }
+
+        function setToToday() {
+            const d = new Date();
+            const jstOffset = 9 * 60 * 60 * 1000;
+            const jstDate = new Date(d.getTime() + jstOffset);
+            document.getElementById('targetDate').value = jstDate.toISOString().split('T')[0];
+            if (allData.length > 0) renderSchedule();
         }
     </script>
 </body>
