@@ -10,8 +10,6 @@
         body { font-family: sans-serif; }
         .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        .fade-in { animation: fadeIn 0.5s ease-in-out forwards; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800">
@@ -41,7 +39,7 @@
 
                 <div class="mb-4">
                     <label class="block text-sm font-bold mb-1 text-gray-700">種別</label>
-                    <select id="typeSelect" class="w-full border border-gray-300 rounded-md p-2.5 bg-gray-50 focus:ring-2 focus:ring-blue-200 outline-none" onchange="handleTypeChange()">
+                    <select id="typeSelect" class="w-full border border-gray-300 rounded-md p-2.5 bg-gray-50 outline-none" onchange="handleTypeChange()">
                         <option value="">選択してください</option>
                         <option value="遅刻">遅刻</option>
                         <option value="早退">早退</option>
@@ -52,7 +50,7 @@
 
                 <div class="mb-4">
                     <label class="block text-sm font-bold mb-1 text-gray-700">区分</label>
-                    <select id="categorySelect" class="w-full border border-gray-300 rounded-md p-2.5 bg-gray-50 focus:ring-2 focus:ring-blue-200 outline-none" onchange="handleCategoryChange()">
+                    <select id="categorySelect" class="w-full border border-gray-300 rounded-md p-2.5 bg-gray-50 outline-none" onchange="handleCategoryChange()">
                         <option value="">選択してください</option>
                         <option value="有給">有給</option>
                         <option value="AM半休">AM半休</option>
@@ -78,27 +76,27 @@
                         </label>
                     </div>
                     <div class="flex items-center gap-2">
-                        <input type="date" id="startDate" class="flex-1 border border-gray-300 rounded p-2 focus:ring-2 focus:ring-blue-200 outline-none">
+                        <input type="date" id="startDate" class="flex-1 border border-gray-300 rounded p-2 outline-none">
                         <span id="periodToLabel" class="hidden text-gray-500 font-bold">～</span>
-                        <input type="date" id="endDate" class="flex-1 border border-gray-300 rounded p-2 hidden focus:ring-2 focus:ring-blue-200 outline-none">
+                        <input type="date" id="endDate" class="flex-1 border border-gray-300 rounded p-2 hidden outline-none">
                     </div>
                 </div>
 
                 <div class="mb-5">
                     <label class="block text-sm font-bold mb-1 text-gray-700">時間</label>
                     <div class="flex items-center gap-2">
-                        <input type="time" id="startTime" class="flex-1 border border-gray-300 rounded p-2 bg-white focus:ring-2 focus:ring-blue-200 outline-none">
+                        <input type="time" id="startTime" class="flex-1 border border-gray-300 rounded p-2 bg-white outline-none">
                         <span class="text-gray-500 font-bold">～</span>
-                        <input type="time" id="endTime" class="flex-1 border border-gray-300 rounded p-2 bg-white focus:ring-2 focus:ring-blue-200 outline-none">
+                        <input type="time" id="endTime" class="flex-1 border border-gray-300 rounded p-2 bg-white outline-none">
                     </div>
                 </div>
 
                 <div class="mb-6">
                     <label class="block text-sm font-bold mb-1 text-gray-700">理由</label>
-                    <textarea id="reason" rows="3" class="w-full border border-gray-300 rounded-md p-2 bg-white focus:ring-2 focus:ring-blue-200 outline-none" placeholder="自由記入"></textarea>
+                    <textarea id="reason" rows="3" class="w-full border border-gray-300 rounded-md p-2 bg-white outline-none" placeholder="自由記入"></textarea>
                 </div>
 
-                <button id="submitBtn" onclick="submitApplication()" class="w-full bg-blue-600 text-white font-bold py-3.5 rounded-lg shadow-md hover:bg-blue-700 transition disabled:bg-gray-400 disabled:cursor-not-allowed">
+                <button id="submitBtn" onclick="submitApplication()" class="w-full bg-blue-600 text-white font-bold py-3.5 rounded-lg shadow-md hover:bg-blue-700 transition disabled:bg-gray-400">
                     申請を送信する
                 </button>
             </div>
@@ -113,110 +111,68 @@
     <script>
         const GAS_URL = "https://script.google.com/macros/s/AKfycbxwEuHjXVsUjbhH9Bo5yQ3vgln5LM615sKftO5pQgzjpPzpRvXuxMcqmyNTNhEhaQeZ/exec"; 
         const WOFF_ID = "RAj4F7BMV-oVhCo-nRSaXw";
-        let currentUser = { id: "", name: "" }; // roleを削除
+        let currentUser = { id: "", name: "" };
         let isFallbackMode = false;
 
         window.onload = () => {
-            const urlParams = new URLSearchParams(window.location.search);
-            const targetTab = urlParams.get('tab') || 'apply';
-
-            const timeoutId = setTimeout(() => {
-                if (!currentUser.id && !isFallbackMode) {
-                    console.warn("WOFF Init Timeout.");
-                    activateFallbackMode(targetTab);
-                }
-            }, 5000);
-
             if (typeof woff !== 'undefined' && woff.init) {
                 woff.init({ woffId: WOFF_ID })
                 .then(() => woff.getProfile())
                 .then(profile => {
-                    clearTimeout(timeoutId);
                     currentUser.id = profile.userId;
-                    initApp(targetTab);
+                    initApp('apply');
                 })
-                .catch(err => {
-                    clearTimeout(timeoutId);
-                    console.warn("WOFF Init or Profile Error:", err);
-                    activateFallbackMode(targetTab);
-                });
+                .catch(() => activateFallbackMode('apply'));
             } else {
-                clearTimeout(timeoutId);
-                console.warn("WOFF SDK is not defined.");
-                activateFallbackMode(targetTab);
+                activateFallbackMode('apply');
             }
         }
         
         function activateFallbackMode(targetTab) {
             isFallbackMode = true;
             const un = document.getElementById('userName');
-            un.placeholder = "氏名を漢字で入力 (例: 三基太郎)";
+            un.placeholder = "氏名を漢字で入力";
             un.removeAttribute('readonly');
             un.classList.remove('bg-transparent', 'font-bold');
-            un.classList.add('border', 'border-gray-300', 'bg-white', 'p-2', 'rounded-md', 'focus:ring-2', 'focus:ring-blue-200', 'text-sm');
+            un.classList.add('border', 'border-gray-300', 'bg-white', 'p-2', 'rounded-md');
             document.getElementById('authByNameBtn').classList.remove('hidden');
             document.getElementById('fallbackMessage').classList.remove('hidden');
-            
             switchTab(targetTab);
         }
 
         async function initApp(targetTab) {
-            if (isFallbackMode) {
-                switchTab(targetTab);
-                return;
-            }
-
             showLoading(true, "ユーザー情報を取得中...");
             try {
                 const json = await fetchGasPost('getUser', { userId: currentUser.id });
                 if (json.status === 'success' && json.data.userName) {
                     currentUser.name = json.data.userName;
                     document.getElementById('userName').value = currentUser.name;
-                } else {
-                    throw new Error("ユーザーがマスタに存在しません");
-                }
+                } else { throw new Error(); }
                 switchTab(targetTab);
-            } catch (e) {
-                console.error(e);
-                alert("情報の取得に失敗しました。名前での手動連携モードに切り替えます。");
-                activateFallbackMode(targetTab);
-            } finally {
-                showLoading(false);
-            }
+            } catch (e) { activateFallbackMode(targetTab); }
+            finally { showLoading(false); }
         }
 
         async function authenticateByName() {
             const nameInput = document.getElementById('userName').value.trim();
             if (!nameInput) return alert("氏名を入力してください。");
-
             showLoading(true, "マスタと連携中...");
             try {
                 const json = await fetchGasPost('getUserByName', { userName: nameInput });
                 if (json.status === 'success' && json.data) {
                     currentUser.id = json.data.userId;
                     currentUser.name = json.data.userName;
-                    
                     const un = document.getElementById('userName');
                     un.setAttribute('readonly', 'true');
-                    un.classList.remove('border', 'border-gray-300', 'bg-white', 'focus:ring-2', 'focus:ring-blue-200');
+                    un.classList.remove('border', 'border-gray-300', 'bg-white');
                     un.classList.add('bg-transparent', 'font-bold');
-                    
                     document.getElementById('authByNameBtn').classList.add('hidden');
                     document.getElementById('fallbackMessage').classList.add('hidden');
-
-                    alert(`「${currentUser.name}」さんとして連携が完了しました。`);
-                    
-                    const urlParams = new URLSearchParams(window.location.search);
-                    const targetTab = urlParams.get('tab') || 'apply';
-                    switchTab(targetTab);
-                } else {
-                    alert("マスタに該当する名前が見つかりません。入力に誤りがないか確認してください。");
-                }
-            } catch (e) {
-                alert("通信エラーが発生しました: " + e.message);
-            } finally {
-                showLoading(false);
-            }
+                    alert(`「${currentUser.name}」さんとして連携しました。`);
+                    switchTab('apply');
+                } else { alert("マスタに該当する名前が見つかりません。"); }
+            } catch (e) { alert("通信エラーが発生しました。"); }
+            finally { showLoading(false); }
         }
 
         function switchTab(tabId) {
@@ -224,21 +180,20 @@
                 const section = document.getElementById('tab-' + id);
                 const btn = document.getElementById('tabBtn-' + id);
                 if (id === tabId) {
-                    if(section) section.classList.remove('hidden');
-                    if(btn) { btn.classList.add('text-blue-600', 'border-blue-600'); btn.classList.remove('text-gray-400', 'border-transparent'); }
+                    section?.classList.remove('hidden');
+                    btn?.classList.add('text-blue-600', 'border-blue-600');
+                    btn?.classList.remove('text-gray-400', 'border-transparent');
                 } else {
-                    if(section) section.classList.add('hidden');
-                    if(btn) { btn.classList.remove('text-blue-600', 'border-blue-600'); btn.classList.add('text-gray-400', 'border-transparent'); }
+                    section?.classList.add('hidden');
+                    btn?.classList.remove('text-blue-600', 'border-blue-600');
+                    btn?.classList.add('text-gray-400', 'border-transparent');
                 }
             });
-
             if (tabId === 'history') {
                 if (isFallbackMode && !currentUser.id) {
-                    alert("まずは申請タブで氏名を入力し「連携」ボタンを押してください。");
+                    alert("まずは氏名を連携してください。");
                     switchTab('apply');
-                } else {
-                    fetchListData();
-                }
+                } else { fetchListData(); }
             }
         }
 
@@ -249,31 +204,29 @@
 
         function handleTypeChange() {
             const type = document.getElementById('typeSelect').value;
-            const categorySelect = document.getElementById('categorySelect');
-            const startTime = document.getElementById('startTime');
-            const endTime = document.getElementById('endTime');
-            startTime.value = ''; endTime.value = '';
-
-            if (type === '遅刻') startTime.value = '08:30';
-            else if (type === '早退') endTime.value = '17:30';
-            else if (type === '欠勤') { startTime.value = '08:30'; endTime.value = '17:30'; categorySelect.value = '欠勤'; }
-            else if (type === '外出') { startTime.value = '08:30'; endTime.value = '17:30'; categorySelect.value = '外出'; }
+            const cat = document.getElementById('categorySelect');
+            const st = document.getElementById('startTime');
+            const et = document.getElementById('endTime');
+            if (type === '遅刻') { st.value = '08:30'; et.value = ''; }
+            else if (type === '早退') { st.value = ''; et.value = '17:30'; }
+            else if (type === '欠勤') { st.value = '08:30'; et.value = '17:30'; cat.value = '欠勤'; }
+            else if (type === '外出') { st.value = '08:30'; et.value = '17:30'; cat.value = '外出'; }
             handleCategoryChange();
         }
 
         function handleCategoryChange() {
-            const category = document.getElementById('categorySelect').value;
-            const wrapper = document.getElementById('compDateWrapper');
-            if (category === '振替休日') wrapper.classList.remove('hidden');
-            else { wrapper.classList.add('hidden'); document.getElementById('compDate').value = ''; }
+            const cat = document.getElementById('categorySelect').value;
+            const wrap = document.getElementById('compDateWrapper');
+            if (cat === '振替休日') wrap.classList.remove('hidden');
+            else { wrap.classList.add('hidden'); document.getElementById('compDate').value = ''; }
         }
 
         function handlePeriodChange() {
-            const isPeriod = document.getElementById('periodCheck').checked;
-            const endWrapper = document.getElementById('endDate');
-            const label = document.getElementById('periodToLabel');
-            if (isPeriod) { endWrapper.classList.remove('hidden'); label.classList.remove('hidden'); }
-            else { endWrapper.classList.add('hidden'); label.classList.add('hidden'); endWrapper.value = ''; }
+            const isP = document.getElementById('periodCheck').checked;
+            const ew = document.getElementById('endDate');
+            const lb = document.getElementById('periodToLabel');
+            if (isP) { ew.classList.remove('hidden'); lb.classList.remove('hidden'); }
+            else { ew.classList.add('hidden'); lb.classList.add('hidden'); ew.value = ''; }
         }
 
         async function fetchGasPost(action, payload) {
@@ -286,82 +239,55 @@
         }
 
         async function submitApplication() {
-            if (isFallbackMode && !currentUser.id) return alert("まずは氏名を入力し、「連携」ボタンを押してください。");
-
-            const btn = document.getElementById('submitBtn');
-            const uId = currentUser.id;
-            const name = currentUser.name;
-            const type = document.getElementById('typeSelect').value;
-            const category = document.getElementById('categorySelect').value;
-            const compDate = document.getElementById('compDate').value;
-            const isPeriod = document.getElementById('periodCheck').checked;
-            const startDate = document.getElementById('startDate').value;
-            const endDate = isPeriod ? document.getElementById('endDate').value : startDate;
-            const startTime = document.getElementById('startTime').value;
-            const endTime = document.getElementById('endTime').value;
-
-            if (!uId || !name) return alert("ユーザー情報が取得できていません。");
-            if (!type || !category) return alert("種別と区分を選択してください。");
-            if (!startDate) return alert("対象日(開始日)を選択してください。");
-            if (isPeriod && !endDate) return alert("期間終了日を選択してください。");
-            if (isPeriod && new Date(startDate) > new Date(endDate)) return alert("終了日は開始日より後の日付にしてください。");
-            if (!startTime || !endTime) return alert("開始時間と終了時間を指定してください。");
-            if (category === '振替休日' && !compDate) return alert("振替対象日を入力してください。");
-
             const data = {
-                userId: uId, userName: name, type: type, category: category,
-                compDate: compDate, startDate: startDate, endDate: endDate,
-                startTime: startTime, endTime: endTime, reason: document.getElementById('reason').value
+                userId: currentUser.id, userName: currentUser.name,
+                type: document.getElementById('typeSelect').value,
+                category: document.getElementById('categorySelect').value,
+                compDate: document.getElementById('compDate').value,
+                startDate: document.getElementById('startDate').value,
+                endDate: document.getElementById('periodCheck').checked ? document.getElementById('endDate').value : document.getElementById('startDate').value,
+                startTime: document.getElementById('startTime').value,
+                endTime: document.getElementById('endTime').value,
+                reason: document.getElementById('reason').value
             };
 
-            btn.disabled = true;
+            if (!data.type || !data.category || !data.startDate || !data.startTime || !data.endTime) return alert("必須項目を入力してください。");
+
             showLoading(true, "送信中...");
             try {
                 const json = await fetchGasPost('submit', data);
                 if (json.status === 'success') { 
                     alert("申請が完了しました。");
                     if(woff.isLoggedIn()) { woff.closeWindow(); } else { location.reload(); }
-                } else {
-                    throw new Error(json.message);
-                }
-            } catch (e) {
-                alert("送信に失敗しました。\n" + e.message);
-                btn.disabled = false;
-            } finally {
-                showLoading(false);
-            }
+                } else throw new Error(json.message);
+            } catch (e) { alert("送信失敗: " + e.message); }
+            finally { showLoading(false); }
         }
 
         async function fetchListData() {
-            const uId = currentUser.id;
-            if (!uId) return;
-
-            showLoading(true, "リストを取得中...");
+            showLoading(true, "取得中...");
             try {
-                const json = await fetchGasPost('getList', { userId: uId }); // 権限を渡す処理を削除
-                if (json.status === 'success') {
-                    renderHistory(json.data.filter(item => item.applicantId === uId));
-                }
-            } catch (e) {
-                console.error("Fetch List Error:", e);
-                alert("リストの取得に失敗しました。");
-            } finally {
-                showLoading(false);
-            }
+                const json = await fetchGasPost('getList', { userId: currentUser.id });
+                if (json.status === 'success') renderHistory(json.data.filter(item => item.applicantId === currentUser.id));
+            } catch (e) { alert("取得失敗"); }
+            finally { showLoading(false); }
         }
 
         function renderHistory(list) {
             const container = document.getElementById('historyList');
-            if (list.length === 0) return container.innerHTML = '<div class="bg-white p-4 rounded text-center text-sm text-gray-500 shadow-sm border border-gray-100">履歴はありません</div>';
+            if (list.length === 0) return container.innerHTML = '<div class="bg-white p-4 text-center text-sm text-gray-500">履歴はありません</div>';
             
             container.innerHTML = list.map(item => `
-                <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-100 border-l-4 ${item.status.includes('承認済み') ? 'border-green-500' : 'border-yellow-400'}">
+                <div class="bg-white p-4 rounded-lg shadow-sm border border-l-4 ${item.status === '取消済み' ? 'border-gray-400' : (item.status.includes('承認済み') ? 'border-green-500' : 'border-yellow-400')}">
                     <div class="flex justify-between items-center mb-2">
                         <span class="font-bold text-gray-800">${item.category}</span>
-                        <span class="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full font-bold border border-gray-200">${item.status}</span>
+                        <span class="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full font-bold">${item.status}</span>
                     </div>
-                    <p class="text-sm text-gray-600 mb-3">対象日: ${item.startDate}</p>
-                    ${(item.status === '承認済み' || item.status === '仮申請' || item.status === '上長承認') ? 
+                    <div class="text-sm text-gray-600 space-y-1 mb-3">
+                        <p>対象日: ${item.startDate}</p>
+                        <p>時間: ${item.startTime} ～ ${item.endTime}</p>
+                    </div>
+                    ${item.status !== '取消済み' ? 
                         `<button class="w-full text-red-500 bg-red-50 border border-red-200 hover:bg-red-100 font-bold rounded-md py-2 transition text-sm" onclick="cancelRequest('${item.uid}')">取消申請を行う</button>` : ''}
                 </div>
             `).join('');
