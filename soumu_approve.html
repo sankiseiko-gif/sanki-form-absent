@@ -79,160 +79,161 @@
 
     <script>
         const GAS_URL = "https://script.google.com/macros/s/AKfycbxwEuHjXVsUjbhH9Bo5yQ3vgln5LM615sKftO5pQgzjpPzpRvXuxMcqmyNTNhEhaQeZ/exec";
-        let colorMap = {}; // スプレッドシートからの色設定を保存
+    　　let allData = [];
+    　　let colorMap = {};
 
-        // 開始 8.5(8:30), 終了 17.5(17:30), 期間 9時間
-        const HOURS = { start: 8.5, end: 17.5, total: 9 };
+    　　const HOURS = { start: 8.5, end: 17.5, total: 9 }; // 8:30 ～ 17:30
 
-        window.onload = () => {
-            setToToday();
-            fetchAllData();
+    　　window.onload = () => {
+        　　setToToday();
+        　　fetchAllData();
+  　　  };
+
+    function switchTab(tabId) {
+        ['basic', 'today', 'proxy'].forEach(id => {
+            document.getElementById('tab-' + id).classList.toggle('hidden', id !== tabId);
+            document.getElementById('tabBtn-' + id).classList.toggle('tab-active', id === tabId);
+            document.getElementById('tabBtn-' + id).classList.toggle('text-gray-400', id !== tabId);
+        });
+        if (tabId === 'today') renderSchedule();
+    }
+
+    async function fetchAllData() {
+        try {
+            const res = await fetch(GAS_URL, {
+                method: "POST",
+                headers: { "Content-Type": "text/plain" },
+                body: JSON.stringify({ action: "getList", payload: { role: "admin" } })
+            });
+            const json = await res.json();
+            if (json.status === 'success') {
+                allData = json.data;
+                colorMap = json.colors || {};
+                renderBasic();
+                renderProxy();
+                renderSchedule();
+            }
+        } catch (e) {
+            console.error("データ取得エラー:", e);
+        }
+    }
+
+    // 1. 基本一覧の表示（時刻を追加）
+    function renderBasic() {
+        const categories = {
+            'apply': allData.filter(i => (i.status || "").includes('申請中') || (i.status || "").includes('仮申請')),
+            'done': allData.filter(i => (i.status || "").includes('完了') || (i.status || "").includes('承認済み')),
+            'cancel': allData.filter(i => (i.status || "").includes('取消完了') || (i.status || "").includes('取消済み'))
         };
 
-        function switchTab(tabId) {
-            ['basic', 'today', 'proxy'].forEach(id => {
-                document.getElementById('tab-' + id).classList.toggle('hidden', id !== tabId);
-                document.getElementById('tabBtn-' + id).classList.toggle('tab-active', id === tabId);
-                document.getElementById('tabBtn-' + id).classList.toggle('text-gray-400', id !== tabId);
-            });
-            if (tabId === 'today') renderSchedule();
-        }
-
-        async function fetchAllData() {
-            try {
-                const res = await fetch(GAS_URL, {
-                    method: "POST",
-                    headers: { "Content-Type": "text/plain" },
-                    body: JSON.stringify({ action: "getList", payload: { role: "admin" } })
-                });
-                const json = await res.json();
-                if (json.status === 'success') {
-                    allData = json.data;
-                    colorMap = json.colors || {}; // ★GASから色設定を受け取る
-                    renderBasic();
-                    renderProxy();
-                    renderSchedule();
-                }
-            } catch (e) {
-                console.error("データの取得に失敗しました", e);
-            }
-        }
-
-　　function renderBasic() {
-    　const categories = {
-        'apply': allData.filter(i => i.status === '申請中' || i.status === '仮申請' || i.status === '上長承認'),
-        'done': allData.filter(i => i.status === '完了' || i.status === '承認済み'),
-        'cancel': allData.filter(i => i.status === '取消完了' || i.status === '取消済み')
-   　 };
-
-   　 for (let key in categories) {
-        document.getElementById(`count-${key}`).innerText = categories[key].length;
-        document.getElementById(`list-${key}`).innerHTML = categories[key].map(i => `
-            <div class="bg-white p-3 rounded border border-gray-200 text-sm shadow-sm hover:shadow transition">
-                <div class="font-bold">${i.userName}</div> <div class="text-gray-500">${i.startDate} / ${i.category}</div>
-            </div>
-        `).join('');
-   　 }
-　　}
-
-        function renderSchedule() {
-            const target = document.getElementById('targetDate').value;
-            const rows = document.getElementById('schedule-rows');
-            const filtered = allData.filter(i => i.startDate === target && i.status === '完了'|| i.status === '仮申請');
-            
-            if (filtered.length === 0) {
-                rows.innerHTML = '<div class="p-10 text-center text-sm text-gray-400">この日の予定はありません</div>';
-                return;
-            }
-
-            rows.innerHTML = filtered.map(i => {
-                const startDec = timeToDecimal(i.startTime);
-                const endDec = timeToDecimal(i.endTime);
-                
-                // 業務時間(8:30-17:30)外の予定を枠内に収めるためのトリミング処理
-                const s = Math.max(HOURS.start, startDec);
-                const e = Math.min(HOURS.end, endDec);
-                
-                const left = ((s - HOURS.start) / HOURS.total) * 100;
-                const width = ((e - s) / HOURS.total) * 100;
-
-                // 欠勤なら区分(category)、それ以外は種別(type)を表示
-                const displayText = (i.type === '欠勤') ? i.category : i.type;
-
-                // ★スプレッドシートの色設定があれば使用し、無ければデフォルトの青(#3b82f6)
-                const bgColor = colorMap[displayText] || '#3b82f6';
-
-                return `
-                    <div class="schedule-grid items-center h-12 hover:bg-gray-50 transition">
-                        <div class="px-3 text-xs font-bold border-r border-gray-100 truncate text-gray-700">${i.applicantName}</div>
-                        <div class="bar-container bg-transparent">
-                            <div class="absence-bar flex items-center justify-center text-[10px] text-white font-bold shadow-sm overflow-hidden whitespace-nowrap" 
-                                 style="left: ${left}%; width: ${width}%; background-color: ${bgColor};">
-                                ${displayText}
-                            </div>
-                        </div>
-                    </div>
-                `;
-            }).join('');
-        }
-
-        function renderProxy() {
-            const list = allData.filter(i => i.status === '申請中').sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-            const body = document.getElementById('proxy-table-body');
-            document.getElementById('proxy-empty').classList.toggle('hidden', list.length > 0);
-            
-            body.innerHTML = list.map(i => `
-                <tr class="hover:bg-gray-50 transition">
-                    <td class="px-6 py-4 text-xs text-gray-500">${i.startDate}</td>
-                    <td class="px-6 py-4 font-bold text-sm text-gray-800">${i.applicantName}</td>
-                    <td class="px-6 py-4 text-sm text-gray-600">${i.category} (${i.startTime}～)</td>
-                    <td class="px-6 py-4 text-right">
-                        <button onclick="proxyApprove('${i.uid}')" class="bg-blue-600 text-white text-xs px-4 py-2 rounded font-bold shadow-sm hover:bg-blue-700 hover:shadow transition">代行承認</button>
-                    </td>
-                </tr>
+        for (let key in categories) {
+            document.getElementById(`count-${key}`).innerText = categories[key].length;
+            document.getElementById(`list-${key}`).innerHTML = categories[key].map(i => `
+                <div class="bg-white p-3 rounded border border-gray-200 text-sm shadow-sm">
+                    <div class="font-bold text-gray-800">${i.userName}</div>
+                    <div class="text-gray-500 text-xs">${i.startDate} / ${i.category}</div>
+                    <div class="text-blue-600 font-bold mt-1">${i.startTime} ～ ${i.endTime}</div>
+                </div>
             `).join('');
         }
+    }
 
-        async function proxyApprove(uid) {
-            if (!confirm("総務としてこの申請を承認しますか？")) return;
-            try {
-                const res = await fetch(GAS_URL, {
-                    method: "POST",
-                    headers: { "Content-Type": "text/plain" },
-                    body: JSON.stringify({ action: "approve", payload: { uid: uid, execUserName: "総務" } })
-                });
-                const json = await res.json();
-                if (json.status === 'success') { 
-                    alert("承認しました"); 
-                    fetchAllData(); 
-                } else {
-                    alert("エラー: " + json.message);
-                }
-            } catch (e) {
-                alert("通信エラーが発生しました。");
+    // 2. スケジュールバーの表示（申請中・完了の両方を表示）
+    function renderSchedule() {
+        const target = document.getElementById('targetDate').value;
+        const rows = document.getElementById('schedule-rows');
+        
+        // 申請中・仮申請・完了・承認済み のすべてを表示対象にする
+        const filtered = allData.filter(i => {
+            const s = (i.status || "");
+            return i.startDate === target && (s.includes('申請中') || s.includes('仮申請') || s.includes('完了') || s.includes('承認済み'));
+        });
+        
+        if (filtered.length === 0) {
+            rows.innerHTML = '<div class="p-10 text-center text-sm text-gray-400">予定はありません</div>';
+            return;
+        }
+
+        rows.innerHTML = filtered.map(i => {
+            const startDec = timeToDecimal(i.startTime);
+            const endDec = timeToDecimal(i.endTime);
+            const s = Math.max(HOURS.start, startDec);
+            const e = Math.min(HOURS.end, endDec);
+            const left = ((s - HOURS.start) / HOURS.total) * 100;
+            const width = ((e - s) / HOURS.total) * 100;
+
+            const displayText = (i.type === '欠勤') ? i.category : i.type;
+            const bgColor = colorMap[displayText] || '#3b82f6';
+
+            return `
+                <div class="schedule-grid items-center h-12 border-b border-gray-50">
+                    <div class="px-3 text-xs font-bold border-r border-gray-100 truncate">${i.userName}</div>
+                    <div class="bar-container bg-transparent">
+                        <div class="absence-bar flex items-center justify-center text-[10px] text-white font-bold shadow-sm" 
+                             style="left: ${left}%; width: ${width}%; background-color: ${bgColor};">
+                            ${displayText}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    // 3. 代行承認タブの表示（申請中・仮申請をリストアップ）
+    function renderProxy() {
+        const list = allData.filter(i => (i.status || "").includes('申請中') || (i.status || "").includes('仮申請'))
+                            .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+        const body = document.getElementById('proxy-table-body');
+        document.getElementById('proxy-empty').classList.toggle('hidden', list.length > 0);
+        
+        body.innerHTML = list.map(i => `
+            <tr class="hover:bg-gray-50 transition">
+                <td class="px-6 py-4 text-xs text-gray-500">${i.startDate}</td>
+                <td class="px-6 py-4 font-bold text-sm">${i.userName}</td>
+                <td class="px-6 py-4 text-sm">${i.category} (${i.startTime}～)</td>
+                <td class="px-6 py-4 text-right">
+                    <button onclick="proxyApprove('${i.uid}')" class="bg-blue-600 text-white text-xs px-3 py-2 rounded font-bold hover:bg-blue-700 shadow-sm">代行承認</button>
+                </td>
+            </tr>
+        `).join('');
+    }
+
+    async function proxyApprove(uid) {
+        if (!confirm("総務としてこの申請を承認しますか？")) return;
+        try {
+            const res = await fetch(GAS_URL, {
+                method: "POST",
+                headers: { "Content-Type": "text/plain" },
+                body: JSON.stringify({ action: "approve", payload: { uid: uid, execUserName: "総務" } })
+            });
+            const json = await res.json();
+            if (json.status === 'success') { 
+                alert("代行承認が完了しました"); 
+                fetchAllData(); 
+            } else {
+                alert("承認エラー: " + json.message);
             }
+        } catch (e) {
+            alert("通信エラーが発生しました。");
         }
+    }
 
-        function timeToDecimal(t) {
-            if (!t) return 0;
-            const [h, m] = t.split(':').map(Number);
-            return h + (m / 60);
-        }
+    function timeToDecimal(t) {
+        if (!t) return 0;
+        const [h, m] = t.split(':').map(Number);
+        return h + (m / 60);
+    }
 
-        function changeDate(days) {
-            const d = new Date(document.getElementById('targetDate').value);
-            d.setDate(d.getDate() + days);
-            document.getElementById('targetDate').value = d.toISOString().split('T')[0];
-            renderSchedule();
-        }
+    function changeDate(days) {
+        const d = new Date(document.getElementById('targetDate').value);
+        d.setDate(d.getDate() + days);
+        document.getElementById('targetDate').value = d.toISOString().split('T')[0];
+        renderSchedule();
+    }
 
-        function setToToday() {
-            const d = new Date();
-            const jstOffset = 9 * 60 * 60 * 1000;
-            const jstDate = new Date(d.getTime() + jstOffset);
-            document.getElementById('targetDate').value = jstDate.toISOString().split('T')[0];
-            if (allData.length > 0) renderSchedule();
-        }
-    </script>
-</body>
-</html>
+    function setToToday() {
+        const d = new Date();
+        const jstDate = new Date(d.getTime() + (9 * 60 * 60 * 1000));
+        document.getElementById('targetDate').value = jstDate.toISOString().split('T')[0];
+        if (allData.length > 0) renderSchedule();
+    }
