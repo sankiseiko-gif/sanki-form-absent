@@ -118,23 +118,22 @@
             }
         }
 
-        function renderBasic() {
-            const categories = {
-                'apply': allData.filter(i => i.status === '仮申請' || i.status === '上長承認'),
-                'done': allData.filter(i => i.status === '承認済み'),
-                'cancel': allData.filter(i => i.status === '取消済み')
-            };
+　　function renderBasic() {
+    　const categories = {
+        'apply': allData.filter(i => i.status === '申請中' || i.status === '仮申請' || i.status === '上長承認'),
+        'done': allData.filter(i => i.status === '完了' || i.status === '承認済み'),
+        'cancel': allData.filter(i => i.status === '取消完了' || i.status === '取消済み')
+   　 };
 
-            for (let key in categories) {
-                document.getElementById(`count-${key}`).innerText = categories[key].length;
-                document.getElementById(`list-${key}`).innerHTML = categories[key].map(i => `
-                    <div class="bg-white p-3 rounded border border-gray-200 text-sm shadow-sm hover:shadow transition">
-                        <div class="font-bold">${i.applicantName}</div>
-                        <div class="text-gray-500">${i.startDate} / ${i.category}</div>
-                    </div>
-                `).join('');
-            }
-        }
+   　 for (let key in categories) {
+        document.getElementById(`count-${key}`).innerText = categories[key].length;
+        document.getElementById(`list-${key}`).innerHTML = categories[key].map(i => `
+            <div class="bg-white p-3 rounded border border-gray-200 text-sm shadow-sm hover:shadow transition">
+                <div class="font-bold">${i.userName}</div> <div class="text-gray-500">${i.startDate} / ${i.category}</div>
+            </div>
+        `).join('');
+   　 }
+　　}
 
         function renderSchedule() {
             const target = document.getElementById('targetDate').value;
