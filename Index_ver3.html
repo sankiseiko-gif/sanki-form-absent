@@ -20,7 +20,6 @@
         <div class="flex justify-around">
             <button id="tabBtn-apply" class="flex-1 py-3 text-sm font-bold text-blue-600 border-b-2 border-blue-600 transition" onclick="switchTab('apply')">申請</button>
             <button id="tabBtn-history" class="flex-1 py-3 text-sm font-bold text-gray-400 border-b-2 border-transparent transition" onclick="switchTab('history')">履歴・取消</button>
-            <button id="tabBtn-approve" class="flex-1 py-3 text-sm font-bold text-gray-400 border-b-2 border-transparent hidden transition" onclick="switchTab('approve')">承認管理</button>
         </div>
     </nav>
 
@@ -29,15 +28,12 @@
     </div>
 
     <main class="px-4 pb-8 max-w-lg mx-auto">
-        <!-- 1. 申請タブ -->
         <section id="tab-apply">
             <div class="bg-white p-5 rounded-lg shadow-sm border border-gray-100">
-                
                 <div class="bg-green-50 border-l-4 border-green-500 p-3 rounded mb-5">
                     <p class="text-xs text-green-700 font-bold mb-1">申請者情報</p>
                     <div class="flex items-center gap-2">
                         <input type="text" id="userName" class="w-full bg-transparent font-bold text-gray-800 outline-none" placeholder="情報を取得中..." readonly>
-                        <!-- フォールバック時に出現する名前連携ボタン -->
                         <button id="authByNameBtn" onclick="authenticateByName()" class="hidden bg-green-600 hover:bg-green-700 text-white text-xs font-bold px-4 py-2 rounded shadow whitespace-nowrap">連携</button>
                     </div>
                     <p id="fallbackMessage" class="text-xs text-red-500 mt-2 hidden">※氏名を漢字で入力して「連携」ボタンを押してください。</p>
@@ -108,97 +104,63 @@
             </div>
         </section>
 
-        <!-- 2. 履歴・取消タブ -->
         <section id="tab-history" class="hidden">
             <h3 class="font-bold text-gray-700 mb-3 ml-1">直近の申請履歴</h3>
             <div id="historyList" class="space-y-3"></div>
         </section>
-
-        <!-- 3. 承認管理タブ -->
-        <section id="tab-approve" class="hidden">
-            <div class="flex justify-between items-center mb-3 bg-white p-3 rounded shadow-sm border border-gray-100">
-                <h3 class="font-bold text-gray-700">承認待ち一覧</h3>
-                <span id="roleBadge" class="text-xs bg-red-100 text-red-700 px-2 py-1 rounded-full font-bold border border-red-200"></span>
-            </div>
-            <div id="approveList" class="space-y-3"></div>
-        </section>
     </main>
 
     <script>
-        
         const GAS_URL = "https://script.google.com/macros/s/AKfycbxwEuHjXVsUjbhH9Bo5yQ3vgln5LM615sKftO5pQgzjpPzpRvXuxMcqmyNTNhEhaQeZ/exec"; 
-        const WOFF_ID = "RAj4F7BMV-oVhCo-nRSaXw";        
-        
-        
-        let currentUser = { id: "", name: "", role: "一般" };
+        const WOFF_ID = "RAj4F7BMV-oVhCo-nRSaXw";
+        let currentUser = { id: "", name: "" }; // roleを削除
         let isFallbackMode = false;
 
         window.onload = () => {
             const urlParams = new URLSearchParams(window.location.search);
             const targetTab = urlParams.get('tab') || 'apply';
-            const roleParam = urlParams.get('role');
 
-
-            // 5秒経過してもWOFFが初期化できなければフォールバック（手動入力）モードへ
             const timeoutId = setTimeout(() => {
                 if (!currentUser.id && !isFallbackMode) {
-                console.warn("WOFF Init Timeout.");
-                activateFallbackMode(targetTab, roleParam);
+                    console.warn("WOFF Init Timeout.");
+                    activateFallbackMode(targetTab);
                 }
             }, 5000);
 
-            // WOFF SDKが正しく読み込まれているかチェック
             if (typeof woff !== 'undefined' && woff.init) {
-    
-            // WOFFの初期化を実行
                 woff.init({ woffId: WOFF_ID })
-                .then(() => {
-                // 初期化成功後、そのままプロフィールを取得 (loginは不要)
-                return woff.getProfile();
-                })
+                .then(() => woff.getProfile())
                 .then(profile => {
-                // プロフィール取得成功
-                clearTimeout(timeoutId);
-                currentUser.id = profile.userId;
-                initApp(targetTab, roleParam); // 成功時のアプリ起動
+                    clearTimeout(timeoutId);
+                    currentUser.id = profile.userId;
+                    initApp(targetTab);
                 })
                 .catch(err => {
-                // 初期化、またはプロフィール取得エラー時
-                clearTimeout(timeoutId);
-                console.warn("WOFF Init or Profile Error:", err);
-                activateFallbackMode(targetTab, roleParam);
+                    clearTimeout(timeoutId);
+                    console.warn("WOFF Init or Profile Error:", err);
+                    activateFallbackMode(targetTab);
                 });
-
             } else {
-            // WOFF SDK自体が読み込めていない場合（PCブラウザ等で直接開いた場合など）
                 clearTimeout(timeoutId);
                 console.warn("WOFF SDK is not defined.");
-                activateFallbackMode(targetTab, roleParam);
+                activateFallbackMode(targetTab);
             }
         }
         
-        // 【機能追加】名前連携へのUI切り替え
-        function activateFallbackMode(targetTab, roleParam) {
+        function activateFallbackMode(targetTab) {
             isFallbackMode = true;
-            
             const un = document.getElementById('userName');
             un.placeholder = "氏名を漢字で入力 (例: 三基太郎)";
             un.removeAttribute('readonly');
             un.classList.remove('bg-transparent', 'font-bold');
             un.classList.add('border', 'border-gray-300', 'bg-white', 'p-2', 'rounded-md', 'focus:ring-2', 'focus:ring-blue-200', 'text-sm');
-            
             document.getElementById('authByNameBtn').classList.remove('hidden');
             document.getElementById('fallbackMessage').classList.remove('hidden');
             
-            if (targetTab === 'approve') {
-                alert("承認権限を確認するため、まずは氏名を入力して「連携」を行ってください。");
-                switchTab('apply');
-            } else {
-                switchTab(targetTab);
-            }
+            switchTab(targetTab);
         }
 
-        async function initApp(targetTab, roleParam) {
+        async function initApp(targetTab) {
             if (isFallbackMode) {
                 switchTab(targetTab);
                 return;
@@ -207,35 +169,22 @@
             showLoading(true, "ユーザー情報を取得中...");
             try {
                 const json = await fetchGasPost('getUser', { userId: currentUser.id });
-                
                 if (json.status === 'success' && json.data.userName) {
                     currentUser.name = json.data.userName;
-                    currentUser.role = json.data.role;
                     document.getElementById('userName').value = currentUser.name;
                 } else {
                     throw new Error("ユーザーがマスタに存在しません");
                 }
-
-                if (targetTab === 'approve') {
-                    if (roleParam === 'soumu' && currentUser.role === '総務') setupApproveMode('総務');
-                    else if (roleParam === 'manager' && (currentUser.role === '上長' || currentUser.role === '総務')) setupApproveMode('上長');
-                    else {
-                        alert("権限がありません。");
-                        if(woff.isLoggedIn()) woff.closeWindow();
-                    }
-                } else {
-                    switchTab(targetTab);
-                }
+                switchTab(targetTab);
             } catch (e) {
                 console.error(e);
                 alert("情報の取得に失敗しました。名前での手動連携モードに切り替えます。");
-                activateFallbackMode(targetTab, roleParam);
+                activateFallbackMode(targetTab);
             } finally {
                 showLoading(false);
             }
         }
 
-        // 【機能追加】名前をGASに送って内部IDと権限を取得する
         async function authenticateByName() {
             const nameInput = document.getElementById('userName').value.trim();
             if (!nameInput) return alert("氏名を入力してください。");
@@ -243,13 +192,10 @@
             showLoading(true, "マスタと連携中...");
             try {
                 const json = await fetchGasPost('getUserByName', { userName: nameInput });
-                
                 if (json.status === 'success' && json.data) {
                     currentUser.id = json.data.userId;
                     currentUser.name = json.data.userName;
-                    currentUser.role = json.data.role;
                     
-                    // UIを確定状態(readonly)に戻す
                     const un = document.getElementById('userName');
                     un.setAttribute('readonly', 'true');
                     un.classList.remove('border', 'border-gray-300', 'bg-white', 'focus:ring-2', 'focus:ring-blue-200');
@@ -259,19 +205,10 @@
                     document.getElementById('fallbackMessage').classList.add('hidden');
 
                     alert(`「${currentUser.name}」さんとして連携が完了しました。`);
-
-                    // 初期起動時のURLパラメータを再評価して適切なタブへ
+                    
                     const urlParams = new URLSearchParams(window.location.search);
                     const targetTab = urlParams.get('tab') || 'apply';
-                    const roleParam = urlParams.get('role');
-                    
-                    if (targetTab === 'approve') {
-                         if (roleParam === 'soumu' && currentUser.role === '総務') setupApproveMode('総務');
-                         else if (roleParam === 'manager' && (currentUser.role === '上長' || currentUser.role === '総務')) setupApproveMode('上長');
-                         else { alert("承認管理を開く権限がありません。"); switchTab('apply'); }
-                    } else if (targetTab === 'history') {
-                         switchTab('history');
-                    }
+                    switchTab(targetTab);
                 } else {
                     alert("マスタに該当する名前が見つかりません。入力に誤りがないか確認してください。");
                 }
@@ -282,27 +219,20 @@
             }
         }
 
-        function setupApproveMode(displayRole) {
-            document.getElementById('mainNav').classList.add('hidden');
-            document.getElementById('tabBtn-approve').classList.remove('hidden');
-            document.getElementById('roleBadge').textContent = displayRole + "モード";
-            switchTab('approve');
-        }
-
         function switchTab(tabId) {
-            ['apply', 'history', 'approve'].forEach(id => {
+            ['apply', 'history'].forEach(id => {
                 const section = document.getElementById('tab-' + id);
                 const btn = document.getElementById('tabBtn-' + id);
                 if (id === tabId) {
-                    section.classList.remove('hidden');
+                    if(section) section.classList.remove('hidden');
                     if(btn) { btn.classList.add('text-blue-600', 'border-blue-600'); btn.classList.remove('text-gray-400', 'border-transparent'); }
                 } else {
-                    section.classList.add('hidden');
+                    if(section) section.classList.add('hidden');
                     if(btn) { btn.classList.remove('text-blue-600', 'border-blue-600'); btn.classList.add('text-gray-400', 'border-transparent'); }
                 }
             });
-            
-            if (tabId === 'history' || tabId === 'approve') {
+
+            if (tabId === 'history') {
                 if (isFallbackMode && !currentUser.id) {
                     alert("まずは申請タブで氏名を入力し「連携」ボタンを押してください。");
                     switchTab('apply');
@@ -356,9 +286,8 @@
         }
 
         async function submitApplication() {
-            // 送信前に連携完了チェック
             if (isFallbackMode && !currentUser.id) return alert("まずは氏名を入力し、「連携」ボタンを押してください。");
-            
+
             const btn = document.getElementById('submitBtn');
             const uId = currentUser.id;
             const name = currentUser.name;
@@ -390,7 +319,7 @@
             try {
                 const json = await fetchGasPost('submit', data);
                 if (json.status === 'success') { 
-                    alert("申請が完了しました。"); 
+                    alert("申請が完了しました。");
                     if(woff.isLoggedIn()) { woff.closeWindow(); } else { location.reload(); }
                 } else {
                     throw new Error(json.message);
@@ -409,10 +338,9 @@
 
             showLoading(true, "リストを取得中...");
             try {
-                const json = await fetchGasPost('getList', { userId: uId, role: currentUser.role });
+                const json = await fetchGasPost('getList', { userId: uId }); // 権限を渡す処理を削除
                 if (json.status === 'success') {
                     renderHistory(json.data.filter(item => item.applicantId === uId));
-                    renderApproveList(json.data.filter(item => item.applicantId !== uId || (currentUser.role === '総務' && item.status.includes('待ち'))));
                 }
             } catch (e) {
                 console.error("Fetch List Error:", e);
@@ -437,59 +365,6 @@
                         `<button class="w-full text-red-500 bg-red-50 border border-red-200 hover:bg-red-100 font-bold rounded-md py-2 transition text-sm" onclick="cancelRequest('${item.uid}')">取消申請を行う</button>` : ''}
                 </div>
             `).join('');
-        }
-
-        function renderApproveList(list) {
-            const container = document.getElementById('approveList');
-            const displayRole = document.getElementById('roleBadge').textContent.replace('モード', '');
-            
-            const filtered = list.filter(item => {
-                if (displayRole === '上長' && item.status === '仮申請' && item.managerId === currentUser.id) return true;
-                if (displayRole === '総務' && (item.status === '上長承認' || item.status === '仮取り消し' || item.status === '仮申請')) return true;
-                return false;
-            });
-
-            if (filtered.length === 0) {
-                container.innerHTML = `<div class="bg-green-50 border border-green-200 p-6 rounded-lg text-center fade-in">
-                    <p class="text-green-700 font-bold text-lg mb-1">🎉 すべての承認が完了しました！</p>
-                    <p class="text-green-600 text-xs">画面を閉じます...</p>
-                </div>`;
-                setTimeout(() => { if(woff.isLoggedIn()) { woff.closeWindow(); } else { location.reload(); } }, 2000);
-                return;
-            }
-
-            container.innerHTML = filtered.map(item => `
-                <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-100 border-l-4 border-blue-500" id="card-${item.uid}">
-                    <div class="flex justify-between items-center mb-2">
-                        <span class="font-bold text-gray-800">${item.userName}</span>
-                        <span class="text-xs font-bold text-red-600 bg-red-50 px-2 py-1 rounded-full border border-red-100">${item.status}</span>
-                    </div>
-                    <p class="text-sm text-gray-600 mb-1">区分: ${item.category}</p>
-                    <p class="text-sm text-gray-600 mb-3">対象: ${item.startDate}</p>
-                    <button id="btn-${item.uid}" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-md py-2.5 transition shadow disabled:bg-gray-400" 
-                        onclick="approveRequest('${item.uid}')">${item.status === '仮取り消し' ? '取消を承認する' : '承認する'}</button>
-                </div>
-            `).join('');
-        }
-
-        async function approveRequest(uid) {
-            if(!confirm("この申請を承認しますか？")) return;
-            const btn = document.getElementById(`btn-${uid}`);
-            btn.disabled = true;
-            showLoading(true, "承認処理中...");
-            try {
-                const json = await fetchGasPost('approve', { uid: uid, execUserName: currentUser.name, execRole: currentUser.role });
-                if (json.status === 'success') { 
-                    btn.innerText = "✅ 承認完了！";
-                    btn.classList.replace('bg-blue-600', 'bg-green-500');
-                    setTimeout(() => fetchListData(), 1000);
-                }
-                else throw new Error(json.message);
-            } catch (e) { 
-                alert("エラー: " + e.message); 
-                btn.disabled = false;
-            }
-            finally { showLoading(false); }
         }
 
         async function cancelRequest(uid) {
