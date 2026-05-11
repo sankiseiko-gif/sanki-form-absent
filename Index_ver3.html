@@ -278,7 +278,7 @@
             if (list.length === 0) return container.innerHTML = '<div class="bg-white p-4 text-center text-sm text-gray-500">履歴はありません</div>';
             
             container.innerHTML = list.map(item => `
-                <div class="bg-white p-4 rounded-lg shadow-sm border border-l-4 ${item.status === '取消済み' ? 'border-gray-400' : (item.status.includes('承認済み') ? 'border-green-500' : 'border-yellow-400')}">
+                <div class="bg-white p-4 rounded-lg shadow-sm border border-l-4 ${item.status === '取消完了' || item.status === '取消済み' ? 'border-gray-400' : (item.status.includes('承認済み') || item.status.includes('完了') ? 'border-green-500' : 'border-yellow-400')}">
                     <div class="flex justify-between items-center mb-2">
                         <span class="font-bold text-gray-800">${item.category}</span>
                         <span class="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full font-bold">${item.status}</span>
@@ -287,11 +287,14 @@
                         <p>対象日: ${item.startDate}</p>
                         <p>時間: ${item.startTime} ～ ${item.endTime}</p>
                     </div>
-                    ${item.status !== '取消済み' ? 
-                        `<button class="w-full text-red-500 bg-red-50 border border-red-200 hover:bg-red-100 font-bold rounded-md py-2 transition text-sm" onclick="cancelRequest('${item.uid}')">取消申請を行う</button>` : ''}
+
+                    ${(item.status !== '取消完了' && item.status !== '取消済み' && item.status !== '取消申請中') ? 
+                        `<button class="w-full text-red-500 bg-red-50 border border-red-200 hover:bg-red-100 font-bold rounded-md py-2 transition text-sm" onclick="cancelRequest('${item.uid}')">取消申請を行う</button>` : 
+                        ''
+                    }
                 </div>
             `).join('');
-        }
+        }   
 
         async function cancelRequest(uid) {
             if(!confirm("この申請を取り消しますか？")) return;
