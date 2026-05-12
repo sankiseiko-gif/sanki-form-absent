@@ -235,12 +235,12 @@
         }
 
         async function proxyApprove(uid) {
-            if (!confirm("総務としてこの申請を承認しますか？")) return;
+            if (!confirm("上長代行としてこの申請を承認しますか？")) return;
             try {
                 const res = await fetch(GAS_URL, {
                     method: "POST",
                     headers: { "Content-Type": "text/plain" },
-                    body: JSON.stringify({ action: "approve", payload: { uid: uid, execUserName: "総務" } })
+                    body: JSON.stringify({ action: "approve", payload: { uid: uid, execUserName: "上長代行" } })
                 });
                 const json = await res.json();
                 if (json.status === 'success') { 
