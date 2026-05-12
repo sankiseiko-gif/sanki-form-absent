@@ -139,7 +139,7 @@
         }
 
         // 【修正済】種別、区分、時間、理由、振替対象日を詳細表示するレイアウトに変更
-        function renderApproveList(list) {
+       function renderApproveList(list) {
             const container = document.getElementById('approveList');
             const filtered = list.filter(item => item.status === '申請中' && item.managerId === currentUser.id);
 
@@ -151,7 +151,13 @@
                 return;
             }
 
-            container.innerHTML = filtered.map(item => `
+            container.innerHTML = filtered.map(item => {
+                // 追加：開始日と終了日が異なる場合は「～」で繋ぐ
+                const dateDisplay = (item.startDate === item.endDate || !item.endDate) 
+                    ? item.startDate 
+                    : `${item.startDate} ～ ${item.endDate}`;
+
+                return `
                 <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200 border-l-4 border-l-blue-500" id="card-${item.uid}">
                     <div class="flex justify-between items-center mb-3">
                         <span class="font-bold text-gray-800 text-lg">${item.userName}</span>
@@ -164,7 +170,7 @@
                         
                         <div class="col-span-2">
                             <span class="font-bold text-gray-500 text-xs block mb-0.5">対象日時</span>
-                            ${item.startDate} <span class="text-gray-500">(${item.startTime} ～ ${item.endTime})</span>
+                            ${dateDisplay} <span class="text-gray-500">(${item.startTime} ～ ${item.endTime})</span>
                         </div>
                         
                         ${item.compDate ? `
@@ -182,7 +188,8 @@
                     <button id="btn-${item.uid}" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-md py-3 transition shadow disabled:bg-gray-400" 
                         onclick="approveRequest('${item.uid}')">承認する</button>
                 </div>
-            `).join('');
+                `;
+            }).join('');
         }
 
         async function approveRequest(uid) {
