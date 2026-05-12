@@ -122,43 +122,49 @@
         }
 
         // 1. 基本一覧の表示
-       function renderBasic() {
-       const categories = {
-        // 「申請中」「仮申請」に完全一致するものだけ
-         'apply': allData.filter(i => {
-             const s = (i.status || "").trim();
-            return s === '申請中' || s === '仮申請' || s === '上長承認';
-         }) ,
-         // 「完了」「承認済み」に完全一致するものだけ（「取消完了」はここで弾かれます）
-         'done': allData.filter(i => {
-             const s = (i.status || "").trim();
-             return s === '完了' || s === '承認済み';
-         }),
-         // 「取消完了」「取消済み」に完全一致するものだけ
-         'cancel': allData.filter(i => {
-             const s = (i.status || "").trim();
-             return s === '取消完了' || s === '取消済み';
-         })
-     };
+        function renderBasic() {
+        const categories = {
+            // 「申請中」「仮申請」に完全一致するものだけ
+            'apply': allData.filter(i => {
+                const s = (i.status || "").trim();
+                return s === '申請中' || s === '仮申請' || s === '上長承認';
+            }),
+            // 「完了」「承認済み」に完全一致するものだけ
+            'done': allData.filter(i => {
+                const s = (i.status || "").trim();
+                return s === '完了' || s === '承認済み';
+            }),
+            // 「取消完了」「取消済み」に完全一致するものだけ
+            'cancel': allData.filter(i => {
+                const s = (i.status || "").trim();
+                return s === '取消完了' || s === '取消済み';
+            })
+        };
 
-    for (let key in categories) {
-        document.getElementById(`count-${key}`).innerText = categories[key].length;
-        document.getElementById(`list-${key}`).innerHTML = categories[key].map(i => `
-            <div class="bg-white p-3 rounded border border-gray-200 text-sm shadow-sm hover:shadow transition relative group cursor-pointer">
-                <div class="font-bold text-gray-800">${i.userName}</div>
-                <div class="text-gray-500 text-[11px]">${i.startDate} / ${i.category}</div>
-                <div class="text-blue-600 font-bold mt-1 text-[12px]">
-                    🕒 ${i.startTime} ～ ${i.endTime}
-                </div>
-                <div class="hidden group-hover:block absolute z-50 bottom-full left-0 mb-2 w-full p-3 bg-gray-800 text-white text-xs rounded shadow-xl fade-in pointer-events-none">
-                    <span class="font-bold text-blue-300 border-b border-gray-600 pb-1 mb-1 block">理由</span>
-                    <div class="whitespace-pre-wrap leading-relaxed">${i.reason || '（記載なし）'}</div>
-                </div>
-            </div>
-        `).join('');
-    }
-}
+        for (let key in categories) {
+            document.getElementById(`count-${key}`).innerText = categories[key].length;
+            document.getElementById(`list-${key}`).innerHTML = categories[key].map(i => {
+                // 追加：期間の表示判定（開始日と終了日が異なる場合は「～」で繋ぐ）
+                const dateDisplay = (i.startDate === i.endDate || !i.endDate) 
+                    ? i.startDate 
+                    : `${i.startDate} ～ ${i.endDate}`;
 
+                return `
+                    <div class="bg-white p-3 rounded border border-gray-200 text-sm shadow-sm hover:shadow transition relative group cursor-pointer">
+                        <div class="font-bold text-gray-800">${i.userName}</div>
+                        <div class="text-gray-500 text-[11px]">${dateDisplay} / ${i.category}</div>
+                        <div class="text-blue-600 font-bold mt-1 text-[12px]">
+                        🕒 ${i.startTime} ～ ${i.endTime}
+                        </div>
+                        <div class="hidden group-hover:block absolute z-50 bottom-full left-0 mb-2 w-full p-3 bg-gray-800 text-white text-xs rounded shadow-xl fade-in pointer-events-none">
+                           <span class="font-bold text-blue-300 border-b border-gray-600 pb-1 mb-1 block">理由</span>
+                           <div class="whitespace-pre-wrap leading-relaxed">${i.reason || '（記載なし）'}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+          }
+        }
                
 
         // 2. スケジュールバーの表示
