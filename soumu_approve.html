@@ -168,52 +168,96 @@
                
 
         // 2. スケジュールバーの表示
-      function renderSchedule() {
-          const target = document.getElementById('targetDate').value;
-          const rows = document.getElementById('schedule-rows');
-    
-          const filtered = allData.filter(i => {
-          const s = (i.status || "").trim();
-          // 日付が一致し、かつステータスが「申請中・仮申請・完了・承認済み」のいずれかである（取消は含めない）
-          return i.startDate === target && 
-               (s === '申請中' || s === '仮申請' || s === '完了' || s === '承認済み');
-          });
-    
-          if (filtered.length === 0) {
-           rows.innerHTML = '<div class="p-10 text-center text-sm text-gray-400">予定はありません</div>';
-          return;
-     }
+     function renderSchedule() {
+            const target = document.getElementById('targetDate').value;
+            const rows = document.getElementById('schedule-rows');
+            
+            // 追加：30人分（1行48px × 30人 = 1440px）の描写スペースをデフォルトで確保する
+            rows.style.minHeight = "1440px"; 
 
-    rows.innerHTML = filtered.map(i => {
-        const startDec = timeToDecimal(i.startTime);
-        const endDec = timeToDecimal(i.endTime);
-        const s = Math.max(HOURS.start, startDec);
-        const e = Math.min(HOURS.end, endDec);
-        const left = ((s - HOURS.start) / HOURS.total) * 100;
-        const width = ((e - s) / HOURS.total) * 100;
+            // カレンダー処理用：表示中の日付から曜日を取得（0:日, 6:土）
+            const targetDateObj = new Date(target);
+            const dayOfWeek = targetDateObj.getDay(); 
 
-        const displayText = (i.type === '欠勤') ? i.category : i.type;
-        const bgColor = colorMap[displayText] || '#3b82f6';
+            const filtered = allData.filter(i => {
+                const s = (i.status || "").trim();
+                const isValidStatus = (s === '申請中' || s === '仮申請' || s === '完了' || s === '承認済み');
+                if (!isValidStatus) return false;
 
-        return `
-            <div class="schedule-grid items-center h-12 border-b border-gray-50 hover:bg-gray-50 transition group relative">
-                <div class="px-3 text-xs font-bold border-r border-gray-100 truncate text-gray-700">${i.userName}</div>
-                <div class="bar-container bg-transparent">
-                    <div class="absence-bar flex items-center justify-center text-[10px] text-white font-bold shadow-sm" 
-                         style="left: ${left}%; width: ${width}%; background-color: ${bgColor};"
-                         title="時間: ${i.startTime} ～ ${i.endTime}">
-                        ${displayText}
+                const sDate = i.startDate;
+                const eDate = i.endDate || i.startDate;
+
+                // 変更：ターゲット日が「開始日〜終了日」の期間内に含まれているかチェック
+                if (target >= sDate && target <= eDate) {
+                    // 土日は飛ばす（複数日申請の場合、土日はバーを表示させない）
+                    if ((dayOfWeek === 0 || dayOfWeek === 6) && sDate !== eDate) {
+                        return false;
+                    }
+                    return true;
+                }
+                return false;
+            });
+            
+            if (filtered.length === 0) {
+                rows.innerHTML = '<div class="p-10 text-center text-sm text-gray-400">予定はありません</div>';
+                return;
+            }
+
+            rows.innerHTML = filtered.map(i => {
+                const sDate = i.startDate;
+                const eDate = i.endDate || i.startDate;
+                
+                let dayStartStr = i.startTime;
+                let dayEndStr = i.endTime;
+
+                // 複数日の場合の表示時間コントロール
+                if (sDate !== eDate) {
+                    if (target === sDate) {
+                        // 開始日: 開始時間 ～ 17:30
+                        dayEndStr = "17:30";
+                    } else if (target === eDate) {
+                        // 終了日: 8:30 ～ 終了時間
+                        dayStartStr = "08:30";
+                    } else {
+                        // 中日: 8:30 ～ 17:30
+                        dayStartStr = "08:30";
+                        dayEndStr = "17:30";
+                    }
+                }
+
+                const startDec = timeToDecimal(dayStartStr);
+                const endDec = timeToDecimal(dayEndStr);
+                const s = Math.max(HOURS.start, startDec);
+                const e = Math.min(HOURS.end, endDec);
+                const left = ((s - HOURS.start) / HOURS.total) * 100;
+                const width = ((e - s) / HOURS.total) * 100;
+
+                const displayText = (i.type === '欠勤') ? i.category : i.type;
+                const bgColor = colorMap[displayText] || '#3b82f6';
+
+                // ツールチップ用の全体期間テキスト
+                const dateDisplay = (sDate === eDate) ? sDate : `${sDate} ～ ${eDate}`;
+
+                return `
+                    <div class="schedule-grid items-center h-12 border-b border-gray-50 hover:bg-gray-50 transition group relative">
+                        <div class="px-3 text-xs font-bold border-r border-gray-100 truncate text-gray-700">${i.userName}</div>
+                        <div class="bar-container bg-transparent">
+                            <div class="absence-bar flex items-center justify-center text-[10px] text-white font-bold shadow-sm" 
+                                 style="left: ${left}%; width: ${width}%; background-color: ${bgColor};"
+                                 title="本日の時間: ${dayStartStr} ～ ${dayEndStr}">
+                                ${displayText}
+                            </div>
+                        </div>
+                        <div class="hidden group-hover:block absolute left-28 z-50 top-10 p-2 bg-gray-800 text-white text-xs rounded shadow-xl fade-in pointer-events-none min-w-[200px]">
+                            <span class="text-blue-300 font-bold">期間:</span> ${dateDisplay}<br>
+                            <span class="text-blue-300 font-bold mt-1 block">本日の時間:</span> ${dayStartStr} ～ ${dayEndStr}<br>
+                            <span class="text-blue-300 font-bold mt-1 block">理由:</span>
+                            <div class="whitespace-pre-wrap">${i.reason || '（記載なし）'}</div>
+                        </div>
                     </div>
-                </div>
-                <div class="hidden group-hover:block absolute left-28 z-50 top-10 p-2 bg-gray-800 text-white text-xs rounded shadow-xl fade-in pointer-events-none min-w-[200px]">
-                    <span class="text-blue-300 font-bold">時間:</span> ${i.startTime} ～ ${i.endTime}<br>
-                    <span class="text-blue-300 font-bold mt-1 block">理由:</span>
-                    <div class="whitespace-pre-wrap">${i.reason || '（記載なし）'}</div>
-                </div>
-            </div>
-        `;
-    }).join('');
-}
+                `;
+            }).join('');
+        }
 
         // 3. 代行承認タブの表示
         function renderProxy() {
@@ -222,16 +266,23 @@
             const body = document.getElementById('proxy-table-body');
             document.getElementById('proxy-empty').classList.toggle('hidden', list.length > 0);
             
-            body.innerHTML = list.map(i => `
+            body.innerHTML = list.map(i => {
+                // 追加：開始日と終了日が異なる場合は「～」で繋ぐ
+                const dateDisplay = (i.startDate === i.endDate || !i.endDate) 
+                    ? i.startDate 
+                    : `${i.startDate} ～ ${i.endDate}`;
+
+                return `
                 <tr class="hover:bg-gray-50 transition">
-                    <td class="px-6 py-4 text-xs text-gray-500">${i.startDate}</td>
+                    <td class="px-6 py-4 text-xs text-gray-500">${dateDisplay}</td>
                     <td class="px-6 py-4 font-bold text-sm text-gray-800">${i.userName}</td>
                     <td class="px-6 py-4 text-sm text-gray-600">${i.category} (${i.startTime}～)</td>
                     <td class="px-6 py-4 text-right">
                         <button onclick="proxyApprove('${i.uid}')" class="bg-blue-600 text-white text-xs px-4 py-2 rounded font-bold hover:bg-blue-700 shadow-sm transition">代行承認</button>
                     </td>
                 </tr>
-            `).join('');
+                `;
+            }).join('');
         }
 
         async function proxyApprove(uid) {
