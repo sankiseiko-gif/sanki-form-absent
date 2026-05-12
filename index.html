@@ -54,6 +54,8 @@
             <div class="select is-fullwidth">
               <select id="category" name="category">
                 <option value="">選択してください</option>
+                <option value="遅刻">遅刻</option>
+                <option value="早退">早退</option>
                 <option value="有給">有給</option>
                 <option value="AM半休">AM半休</option>
                 <option value="PM半休">PM半休</option>
@@ -61,6 +63,7 @@
                 <option value="結婚">結婚</option>
                 <option value="振替休日">振替休日</option>
                 <option value="欠勤">欠勤</option>
+                <option value="外出">外出</option>
               </select>
             </div>
           </div>
@@ -278,6 +281,14 @@
       }
       if (data.type !== '取り消し' && data.category === '振替休日' && !data.compDate) {
         alert("振替出勤日を入力してください。"); return false;
+      }
+      if (!data.startTime || !data.endTime) {
+         alert("時刻を入力してください。");
+         return false;
+      }
+      if (data.startTime > data.endTime) {
+         alert("終了時刻は開始時刻以降を指定してください。");
+         return false;
       }
       return true;
     }
