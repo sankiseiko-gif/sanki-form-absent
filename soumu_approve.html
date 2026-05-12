@@ -21,7 +21,10 @@
     <header class="bg-white shadow-sm sticky top-0 z-40">
         <div class="max-w-5xl mx-auto px-4 py-4 flex justify-between items-center">
             <h1 class="text-xl font-bold text-gray-900">総務管理ダッシュボード</h1>
-            <button onclick="fetchAllData()" class="bg-gray-100 hover:bg-gray-200 px-4 py-2 rounded text-sm font-bold transition">最新の状態に更新</button>
+       　   <button id="updateBtn" onclick="fetchAllData()" class="bg-gray-100 hover:bg-gray-200 px-4 py-2 rounded text-sm font-bold transition flex items-center justify-center gap-1 min-w-[140px]">
+            <span id="updateIcon">🔄</span>
+     　     <span id="updateText">最新の状態に更新</span>
+　　　　　</button> 
         </div>
         <div class="max-w-5xl mx-auto px-4 flex gap-8">
             <button onclick="switchTab('basic')" id="tabBtn-basic" class="py-3 font-bold transition tab-active">基本一覧</button>
@@ -102,24 +105,59 @@
         }
 
         async function fetchAllData() {
-            try {
-                const res = await fetch(GAS_URL, {
-                    method: "POST",
-                    headers: { "Content-Type": "text/plain" },
-                    body: JSON.stringify({ action: "getList", payload: { role: "admin" } })
-                });
-                const json = await res.json();
-                if (json.status === 'success') {
-                    allData = json.data;
-                    colorMap = json.colors || {};
-                    renderBasic();
-                    renderProxy();
-                    renderSchedule();
-                }
-            } catch (e) {
-                console.error("データ取得エラー:", e);
+            const btn = document.getElementById('updateBtn');
+            const icon = document.getElementById('updateIcon');
+            const text = document.getElementById('updateText');
+
+            // ① ボタンを「更新中」状態にする
+            btn.disabled = true; // 連打防止
+            btn.classList.add('opacity-70', 'cursor-not-allowed', 'bg-blue-100', 'text-blue-700');
+            btn.classList.remove('bg-gray-100', 'hover:bg-gray-200');
+            icon.classList.add('animate-spin'); // ぐるぐる回す
+            icon.innerText = '⏳';
+            text.innerText = '更新中...';
+
+        try {
+            const res = await fetch(GAS_URL, {
+                method: "POST",
+                headers: { "Content-Type": "text/plain" },
+                body: JSON.stringify({ action: "getList", payload: { role: "admin" } })
+            });
+            const json = await res.json();
+        
+           if (json.status === 'success') {
+                allData = json.data;
+                colorMap = json.colors || {};
+                renderBasic();
+                renderProxy();
+                renderSchedule();
+
+            // ② 成功したら「完了」表示にする
+            icon.classList.remove('animate-spin');
+            icon.innerText = '✅';
+            text.innerText = '更新完了';
+            btn.classList.replace('bg-blue-100', 'bg-green-100');
+            btn.classList.replace('text-blue-700', 'text-green-800');
             }
-        }
+        } catch (e) {
+            console.error("データ取得エラー:", e);
+            // エラー時の表示
+            icon.classList.remove('animate-spin');
+            icon.innerText = '❌';
+            text.innerText = '通信エラー';
+            btn.classList.replace('bg-blue-100', 'bg-red-100');
+            btn.classList.replace('text-blue-700', 'text-red-800');
+        } finally {
+        // ③ 2秒後に元の「最新の状態に更新」ボタンに戻す
+            setTimeout(() => {
+                btn.disabled = false;
+                btn.classList.remove('opacity-70', 'cursor-not-allowed', 'bg-green-100', 'text-green-800', 'bg-red-100', 'text-red-800');
+                btn.classList.add('bg-gray-100', 'hover:bg-gray-200');
+                icon.innerText = '🔄';
+                text.innerText = '最新の状態に更新';
+        }, 2000);
+    }
+}
 
         // 1. 基本一覧の表示
         function renderBasic() {
