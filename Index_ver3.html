@@ -261,6 +261,11 @@
         }
 
          async function submitApplication() {
+
+             if (isFallbackMode && !currentUser.id) {
+                alert("申請を行う前に、まずは氏名の連携を行ってください。");
+                return; // ここで処理を強制終了する
+            }
             const isPeriod = document.getElementById('periodCheck').checked;
             const typeVal = document.getElementById('typeSelect').value;
             const catVal = document.getElementById('categorySelect').value;
