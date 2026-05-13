@@ -567,9 +567,14 @@ async function fetchGasPost(action, payload) {
 }
 
 // 簡易的なローディング表示用関数
+// 簡易的なローディング表示用関数
 function showLoading(isShowing, text) {
-    const btn = document.querySelector('#editFormArea button.bg-blue-600');
-    if (btn) {
+    // 編集フォームエリア内のボタンをすべて取得
+    const buttons = document.querySelectorAll('#editFormArea button');
+    
+    // 2つ目のボタン（インデックス1）が「保存」ボタン
+    if (buttons.length >= 2) {
+        const btn = buttons[1]; 
         btn.innerText = isShowing ? text : "保存してカレンダー更新";
         btn.disabled = isShowing;
         btn.className = isShowing 
