@@ -40,7 +40,82 @@
                 <div><h3 class="font-bold mb-3 flex items-center gap-2">✅ 完了 <span id="count-done" class="text-xs bg-green-100 text-green-700 px-2 rounded-full">0</span></h3><div id="list-done" class="space-y-3"></div></div>
                 <div><h3 class="font-bold mb-3 flex items-center gap-2">❌ 取消完了 <span id="count-cancel" class="text-xs bg-red-100 text-red-700 px-2 rounded-full">0</span></h3><div id="list-cancel" class="space-y-3"></div></div>
             </div>
-        </section>
+            <!-- 修正フォームエリア (初期状態はhidden) -->
+    <div id="editFormArea" class="hidden bg-white p-6 rounded-lg shadow-md mt-4 border-2 border-blue-400">
+        <h2 class="text-xl font-bold mb-4 text-blue-700">申請内容の修正</h2>
+    
+        <input type="hidden" id="editUid">
+    
+        <div class="space-y-4">
+            <div>
+                <label class="block text-sm font-bold text-gray-700 mb-1">申請者</label>
+                <input type="text" id="editUserName" readonly class="w-full bg-gray-100 border border-gray-300 p-2 rounded-md font-bold text-gray-600">
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">種別</label>
+                    <select id="editTypeSelect" class="w-full border border-gray-300 p-2 rounded-md bg-white">
+                        <option value="遅刻">遅刻</option>
+                        <option value="早退">早退</option>
+                        <option value="欠勤">欠勤</option>
+                        <option value="外出">外出</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">区分</label>
+                    <select id="editCategorySelect" class="w-full border border-gray-300 p-2 rounded-md bg-white">
+                        <option value="">選択してください</option>
+                        <option value="遅刻">遅刻</option>
+                        <option value="早退">早退</option>
+                        <option value="AM半休">AM半休</option>
+                        <option value="PM半休">PM半休</option>
+                        <option value="有給">有給</option>
+                        <option value="欠勤">欠勤</option>
+                        <option value="振替休日">振替休日</option>
+                        <option value="忌引">忌引</option>
+                        <option value="結婚">結婚</option>
+                        <option value="外出">外出</option>
+                    </select>
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-sm font-bold text-gray-700 mb-1">対象日</label>
+                <div class="flex items-center space-x-2 mb-2">
+                    <input type="checkbox" id="editPeriodCheck" onchange="handleEditPeriodChange()" class="w-4 h-4 text-blue-600 rounded">
+                    <label for="editPeriodCheck" class="text-sm text-gray-700 font-bold">期間で申請 </label>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <input type="date" id="editStartDate" class="w-full border border-gray-300 p-2 rounded-md bg-white">
+                    <span id="editPeriodToLabel" class="hidden font-bold">～</span>
+                    <input type="date" id="editEndDate" class="hidden w-full border border-gray-300 p-2 rounded-md bg-white">
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">開始時刻</label>
+                    <input type="time" id="editStartTime" class="w-full border border-gray-300 p-2 rounded-md bg-white">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">終了時刻</label>
+                    <input type="time" id="editEndTime" class="w-full border border-gray-300 p-2 rounded-md bg-white">
+                </div>
+            </div>
+        </div>
+
+        <!-- アクションボタン -->
+        <div class="mt-6 flex space-x-3">
+            <button onclick="closeEditForm()" class="flex-1 bg-gray-200 text-gray-700 font-bold py-3 rounded-md hover:bg-gray-300 transition">
+                キャンセル
+            </button>
+            <button onclick="updateApplicationByAdmin()" class="flex-1 bg-blue-600 text-white font-bold py-3 rounded-md hover:bg-blue-700 transition">
+                保存してカレンダー更新
+            </button>
+        </div>
+    </div>
+    </section>
 
         <section id="tab-today" class="hidden">
             <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
@@ -186,14 +261,25 @@
                 const dateDisplay = (i.startDate === i.endDate || !i.endDate) 
                     ? i.startDate 
                     : `${i.startDate} ～ ${i.endDate}`;
+                
+                // オブジェクトを安全にHTMLの引数に渡すためのエンコード処理
+                const itemJson = encodeURIComponent(JSON.stringify(i));
 
                 return `
-                    <div class="bg-white p-3 rounded border border-gray-200 text-sm shadow-sm hover:shadow transition relative group cursor-pointer">
-                        <div class="font-bold text-gray-800">${i.userName}</div>
-                        <div class="text-gray-500 text-[11px]">${dateDisplay} / ${i.category}</div>
-                        <div class="text-blue-600 font-bold mt-1 text-[12px]">
-                        🕒 ${i.startTime} ～ ${i.endTime}
+                    <div class="bg-white p-3 rounded border border-gray-200 text-sm shadow-sm hover:shadow transition relative group">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <div class="font-bold text-gray-800">${i.userName}</div>
+                                <div class="text-gray-500 text-[11px]">${dateDisplay} / ${i.category}</div>
+                                <div class="text-blue-600 font-bold mt-1 text-[12px]">
+                                🕒 ${i.startTime} ～ ${i.endTime}
+                                </div>
+                            </div>
+                            <button onclick="openEditForm('${itemJson}')" class="bg-blue-50 text-blue-600 border border-blue-200 px-3 py-1 rounded text-xs font-bold hover:bg-blue-100 transition z-10 relative">
+                                修正
+                            </button>
                         </div>
+                        
                         <div class="hidden group-hover:block absolute z-50 bottom-full left-0 mb-2 w-full p-3 bg-gray-800 text-white text-xs rounded shadow-xl fade-in pointer-events-none">
                            <span class="font-bold text-blue-300 border-b border-gray-600 pb-1 mb-1 block">理由</span>
                            <div class="whitespace-pre-wrap leading-relaxed">${i.reason || '（記載なし）'}</div>
@@ -343,6 +429,113 @@
             }
         }
 
+// ==========================================
+// 修正フォームの表示制御・データセット
+// ==========================================
+function openEditForm(itemJson) {
+    // ボタンから渡された文字列データ(JSON)をオブジェクトに戻す
+    const item = JSON.parse(decodeURIComponent(itemJson));
+
+    // フォームに値をセット
+    document.getElementById('editUid').value = item.uid;
+    document.getElementById('editUserName').value = item.userName;
+    document.getElementById('editTypeSelect').value = item.type;
+    document.getElementById('editCategorySelect').value = item.category;
+    document.getElementById('editStartDate').value = item.startDate;
+    
+    // 期間申請かどうかの判定
+    const isPeriod = (item.endDate && item.startDate !== item.endDate);
+    document.getElementById('editPeriodCheck').checked = isPeriod;
+    document.getElementById('editEndDate').value = isPeriod ? item.endDate : '';
+    handleEditPeriodChange(); // 表示の切り替え
+
+    document.getElementById('editStartTime').value = item.startTime;
+    document.getElementById('editEndTime').value = item.endTime;
+
+    // 修正フォームを表示し、一覧などを隠す（※一覧のIDに合わせて変更してください）
+    document.getElementById('editFormArea').classList.remove('hidden');
+    // document.getElementById('adminListArea').classList.add('hidden'); // 一覧を隠す場合
+    
+    // フォームの位置までスクロール
+    document.getElementById('editFormArea').scrollIntoView({ behavior: 'smooth' });
+}
+
+function closeEditForm() {
+    document.getElementById('editFormArea').classList.add('hidden');
+    // document.getElementById('adminListArea').classList.remove('hidden'); // 一覧を再表示する場合
+}
+
+function handleEditPeriodChange() {
+    const isP = document.getElementById('editPeriodCheck').checked;
+    const ew = document.getElementById('editEndDate');
+    const lb = document.getElementById('editPeriodToLabel');
+    if (isP) { 
+        ew.classList.remove('hidden'); 
+        lb.classList.remove('hidden'); 
+    } else { 
+        ew.classList.add('hidden'); 
+        lb.classList.add('hidden'); 
+        ew.value = ''; 
+    }
+}
+
+// ==========================================
+// 修正データをGASへ送信（更新とカレンダー置き換え）
+// ==========================================
+async function updateApplicationByAdmin() {
+    const uid = document.getElementById('editUid').value;
+    const isPeriod = document.getElementById('editPeriodCheck').checked;
+    const typeVal = document.getElementById('editTypeSelect').value;
+    const catVal = document.getElementById('editCategorySelect').value;
+    const sDateVal = document.getElementById('editStartDate').value;
+    const eDateVal = isPeriod ? document.getElementById('editEndDate').value : sDateVal;
+    const sTimeVal = document.getElementById('editStartTime').value;
+    const eTimeVal = document.getElementById('editEndTime').value;
+
+    // 入力チェック（バリデーション）
+    if (!typeVal || !catVal || !sDateVal || !sTimeVal || !eTimeVal) {
+        return alert("必須項目を入力してください。");
+    }
+    if (isPeriod && !eDateVal) {
+        return alert("期間指定の場合は、終了日を入力してください。");
+    }
+    if (isPeriod && sDateVal > eDateVal) {
+        return alert("終了日は開始日以降の日付を指定してください。");
+    }
+    if (!isPeriod && sTimeVal >= eTimeVal) {
+        return alert("終了時刻は開始時刻より後の時間を指定してください。");
+    }
+
+    if (!confirm("修正内容を保存し、カレンダーの予定も更新しますか？")) return;
+
+    const updateData = {
+        uid: uid,
+        userName: document.getElementById('editUserName').value,
+        type: typeVal,
+        category: catVal,
+        startDate: sDateVal,
+        endDate: eDateVal,
+        startTime: sTimeVal,
+        endTime: eTimeVal
+    };
+
+    showLoading(true, "更新中...");
+    try {
+        const json = await fetchGasPost('updateRecord', updateData);
+        if (json.status === 'success') { 
+            alert("修正とカレンダーの更新が完了しました。");
+            closeEditForm();
+            fetchAllData(); // ※一覧を再取得する関数名に合わせてください
+        } else {
+            throw new Error(json.message);
+        }
+    } catch (e) { 
+        alert("更新失敗: " + e.message); 
+    } finally { 
+        showLoading(false); 
+    }
+}
+        
         function timeToDecimal(t) {
             if (!t) return 0;
             const [h, m] = t.split(':').map(Number);
@@ -362,6 +555,29 @@
             document.getElementById('targetDate').value = jstDate.toISOString().split('T')[0];
             if (allData.length > 0) renderSchedule();
         }
+
+// GASへPOSTリクエストを送る共通関数
+async function fetchGasPost(action, payload) {
+    const res = await fetch(GAS_URL, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain" },
+        body: JSON.stringify({ action: action, payload: payload })
+    });
+    return res.json();
+}
+
+// 簡易的なローディング表示用関数
+function showLoading(isShowing, text) {
+    const btn = document.querySelector('#editFormArea button.bg-blue-600');
+    if (btn) {
+        btn.innerText = isShowing ? text : "保存してカレンダー更新";
+        btn.disabled = isShowing;
+        btn.className = isShowing 
+            ? "flex-1 bg-blue-300 text-white font-bold py-3 rounded-md cursor-wait" 
+            : "flex-1 bg-blue-600 text-white font-bold py-3 rounded-md hover:bg-blue-700 transition";
+    }
+}
+        
     </script>
 </body>
 </html>
