@@ -59,7 +59,9 @@
                         <option value="結婚">結婚</option>
                         <option value="振替休日">振替休日</option>
                         <option value="欠勤">欠勤</option>
-                        <option value="外出">外出</option>
+                        <option value="遅刻">遅刻</option>
+                        <option value="早退">早退</option>
+                        <option value="外出" class="hidden">外出</option>
                     </select>
                 </div>
 
@@ -202,16 +204,36 @@
             document.getElementById('loading').style.display = show ? 'flex' : 'none';
         }
 
-        function handleTypeChange() {
-            const type = document.getElementById('typeSelect').value;
-            const cat = document.getElementById('categorySelect');
-            const st = document.getElementById('startTime');
-            const et = document.getElementById('endTime');
-            if (type === '遅刻') { st.value = '08:30'; et.value = ''; }
-            else if (type === '早退') { st.value = ''; et.value = '17:30'; }
-            else if (type === '欠勤') { st.value = '08:30'; et.value = '17:30'; cat.value = '欠勤'; }
-            else if (type === '外出') { st.value = '08:30'; et.value = '17:30'; cat.value = '外出'; }
+       function handleTypeChange() {
+           const type = document.getElementById('typeSelect').value;
+           const cat  = document.getElementById('categorySelect');
+           const st   = document.getElementById('startTime');
+           const et   = document.getElementById('endTime');
+
+           if (type === '遅刻') {
+                st.value = '08:30';
+                et.value = '';
+                if (cat.value === '外出') cat.value = '';
+           } else if (type === '早退') {
+                st.value = '';
+                et.value = '17:30';
+                if (cat.value === '外出') cat.value = '';
+          } else if (type === '欠勤') {
+               st.value = '08:30';
+               et.value = '17:30';
+               if (cat.value === '外出') cat.value = ''; // ※前に外出を選んでいた場合のみリセット
+         } else if (type === '外出') {
+               st.value = '';
+               et.value = '';
+               cat.value = '外出';
+        } else {
+        if (cat.value === '外出') {
+            cat.value = '';
+            }
+        }
+        if (typeof handleCategoryChange === 'function') {
             handleCategoryChange();
+            }
         }
 
         function handleCategoryChange() {
@@ -238,20 +260,52 @@
             return res.json();
         }
 
-        async function submitApplication() {
+         async function submitApplication() {
+            const isPeriod = document.getElementById('periodCheck').checked;
+            const typeVal = document.getElementById('typeSelect').value;
+            const catVal = document.getElementById('categorySelect').value;
+            const sDateVal = document.getElementById('startDate').value;
+            // 期間指定がONならendDateの値を、OFFならstartDateの値を終了日とする
+            const eDateVal = isPeriod ? document.getElementById('endDate').value : sDateVal;
+            const sTimeVal = document.getElementById('startTime').value;
+            const eTimeVal = document.getElementById('endTime').value;
+
+            // 1. 必須項目の入力チェック
+            if (!typeVal || !catVal || !sDateVal || !sTimeVal || !eTimeVal) {
+                return alert("必須項目（種別、区分、開始日、開始時刻、終了時刻）を入力してください。");
+            }
+
+            // 期間指定（チェックボックスON）の場合、終了日が空でないかチェック
+            if (isPeriod && !eDateVal) {
+                return alert("期間指定の場合は、終了日を入力してください。");
+            }
+
+            // 2. 日付の前後関係チェック（期間指定の場合のみ、開始日が終了日より後になっていないか）
+            if (isPeriod && sDateVal > eDateVal) {
+                return alert("終了日は開始日以降の日付を指定してください。");
+            }
+
+            // 3. 時刻の前後関係チェック（★期間申請ではない場合のみ実行）
+            if (!isPeriod) {
+                // "08:30" と "17:30" のような文字列同士でも大小比較が可能です
+                if (sTimeVal >= eTimeVal) {
+                    return alert("終了時刻は開始時刻より後の時間を指定してください。");
+                }
+            }
+
+            // チェックをすべて通過したら送信データを組み立てる
             const data = {
-                userId: currentUser.id, userName: currentUser.name,
-                type: document.getElementById('typeSelect').value,
-                category: document.getElementById('categorySelect').value,
+                userId: currentUser.id, 
+                userName: currentUser.name,
+                type: typeVal,
+                category: catVal,
                 compDate: document.getElementById('compDate').value,
-                startDate: document.getElementById('startDate').value,
-                endDate: document.getElementById('periodCheck').checked ? document.getElementById('endDate').value : document.getElementById('startDate').value,
-                startTime: document.getElementById('startTime').value,
-                endTime: document.getElementById('endTime').value,
+                startDate: sDateVal,
+                endDate: eDateVal,
+                startTime: sTimeVal,
+                endTime: eTimeVal,
                 reason: document.getElementById('reason').value
             };
-
-            if (!data.type || !data.category || !data.startDate || !data.startTime || !data.endTime) return alert("必須項目を入力してください。");
 
             showLoading(true, "送信中...");
             try {
@@ -260,8 +314,11 @@
                     alert("申請が完了しました。");
                     if(woff.isLoggedIn()) { woff.closeWindow(); } else { location.reload(); }
                 } else throw new Error(json.message);
-            } catch (e) { alert("送信失敗: " + e.message); }
-            finally { showLoading(false); }
+            } catch (e) { 
+                alert("送信失敗: " + e.message); 
+            } finally { 
+                showLoading(false); 
+            }
         }
 
         async function fetchListData() {
