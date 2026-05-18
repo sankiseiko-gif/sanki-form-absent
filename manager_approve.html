@@ -110,29 +110,23 @@
                 if (json.status === 'success' && json.data) {
                     currentUser.id = json.data.userId;
                     currentUser.name = json.data.userName;
-                    currentUser.role = json.data.role;
                     verifyRoleAndLoad();
                 } else alert("マスタに該当する名前が見つかりません。");
             } catch (e) { alert("通信エラー"); }
             finally { showLoading(false); }
         }
 
-        function verifyRoleAndLoad() {
-            if (currentUser.role === '上長' || currentUser.role === '総務') {
+        function verifyRoleAndLoad() {   
                 document.getElementById('authArea').classList.add('hidden');
                 document.getElementById('approveArea').classList.remove('hidden');
                 document.getElementById('approverName').innerText = currentUser.name;
                 fetchListData();
-            } else {
-                alert("この画面へアクセスする権限がありません。");
-                if (typeof woff !== 'undefined' && woff.isLoggedIn && woff.isLoggedIn()) woff.closeWindow();
-            }
         }
 
         async function fetchListData() {
             showLoading(true, "リストを取得中...");
             try {
-                const json = await fetchGasPost('getList', { userId: currentUser.id, role: '上長' });
+                const json = await fetchGasPost('getList', { userId: currentUser.id });
                 if (json.status === 'success') renderApproveList(json.data);
             } catch (e) { alert("取得失敗"); } 
             finally { showLoading(false); }
@@ -198,7 +192,7 @@
             btn.disabled = true;
             showLoading(true, "処理中...");
             try {
-                const json = await fetchGasPost('approve', { uid: uid, execUserName: currentUser.name, execRole: currentUser.role });
+                const json = await fetchGasPost('approve', { uid: uid, execUserName: currentUser.name});
                 if (json.status === 'success') { 
                     btn.innerText = "✅ 承認完了";
                     btn.classList.replace('bg-blue-600', 'bg-green-500');
