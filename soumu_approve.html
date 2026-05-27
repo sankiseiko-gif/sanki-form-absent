@@ -252,8 +252,110 @@
 }
 
         // 1. 基本一覧の表示
+        function renderBasic() {
+            // 検索フォームの値を取得
+            const searchName = document.getElementById('searchName') ? document.getElementById('searchName').value.trim().toLowerCase() : "";
+            const searchCategory = document.getElementById('searchCategory') ? document.getElementById('searchCategory').value.trim().toLowerCase() : "";
+            const searchDate = document.getElementById('searchDate') ? document.getElementById('searchDate').value : "";
 
-               
+            // ① すべてのデータに対して検索条件のフィルターを適用
+            let filteredData = allData.filter(i => {
+                // 申請者の部分一致
+                const matchName = !searchName || (i.userName && i.userName.toLowerCase().includes(searchName));
+                
+                // 種別・区分の部分一致（type または category のどちらかに含まれればOK）
+                const matchCategory = !searchCategory || 
+                                      (i.category && i.category.toLowerCase().includes(searchCategory)) || 
+                                      (i.type && i.type.toLowerCase().includes(searchCategory));
+                
+                // 該当日付の判定（開始日〜終了日の中日も該当）
+                let matchDate = true;
+                if (searchDate) {
+                    const sDate = i.startDate || "";
+                    const eDate = i.endDate || i.startDate || ""; // 終了日がない場合は開始日と同日扱い
+
+                    if (sDate && eDate) {
+                        // 文字列（YYYY-MM-DD）のまま比較演算子で判定可能
+                        matchDate = (searchDate >= sDate && searchDate <= eDate);
+                    } else {
+                        matchDate = false;
+                    }
+                }
+
+                return matchName && matchCategory && matchDate;
+            });
+
+            // ② 申請日時（timestamp）が新しいものを上に表示させるためのソート（降順）
+            filteredData.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+            // ③ フィルタリング・ソート済みのデータをステータス別に分類
+            const categories = {
+                // 「申請中」「仮申請」「上長承認」に完全一致するものだけ
+                'apply': filteredData.filter(i => {
+                    const s = (i.status || "").trim();
+                    return s === '申請中' || s === '仮申請' || s === '上長承認';
+                }),
+                // 「完了」「承認済み」に完全一致するものだけ
+                'done': filteredData.filter(i => {
+                    const s = (i.status || "").trim();
+                    return s === '完了' || s === '承認済み';
+                }),
+                // 「取消完了」「取消済み」に完全一致するものだけ
+                'cancel': filteredData.filter(i => {
+                    const s = (i.status || "").trim();
+                    return s === '取消完了' || s === '取消済み';
+                })
+            };
+
+            // ④ DOMへの描画処理
+            for (let key in categories) {
+                const countEl = document.getElementById(`count-${key}`);
+                const listEl = document.getElementById(`list-${key}`);
+                
+                if (countEl) countEl.innerText = categories[key].length;
+                if (listEl) {
+                    listEl.innerHTML = categories[key].map(i => {
+                        // 期間の表示判定（開始日と終了日が異なる場合は「～」で繋ぐ）
+                        const dateDisplay = (i.startDate === i.endDate || !i.endDate) 
+                            ? i.startDate 
+                            : `${i.startDate} ～ ${i.endDate}`;
+                        
+                        // オブジェクトを安全にHTMLの引数に渡すためのエンコード処理
+                        const itemJson = encodeURIComponent(JSON.stringify(i));
+
+                        return `
+                            <div class="bg-white p-3 rounded border border-gray-200 text-sm shadow-sm hover:shadow transition relative group">
+                                <div class="flex justify-between items-start">
+                                    <div>
+                                        <div class="font-bold text-gray-800">${i.userName}</div>
+                                        <div class="text-gray-500 text-[11px]">${dateDisplay} / ${i.category}</div>
+                                        <div class="text-blue-600 font-bold mt-1 text-[12px]">
+                                        🕒 ${i.startTime} ～ ${i.endTime}
+                                        </div>
+                                    </div>
+                                    <button onclick="openEditForm('${itemJson}')" class="bg-blue-50 text-blue-600 border border-blue-200 px-3 py-1 rounded text-xs font-bold hover:bg-blue-100 transition z-10 relative">
+                                        修正
+                                    </button>
+                                </div>
+                                
+                                <div class="hidden group-hover:block absolute z-50 bottom-full left-0 mb-2 w-full p-3 bg-gray-800 text-white text-xs rounded shadow-xl fade-in pointer-events-none">
+                                   <span class="font-bold text-blue-300 border-b border-gray-600 pb-1 mb-1 block">理由</span>
+                                   <div class="whitespace-pre-wrap leading-relaxed">${i.reason || '（記載なし）'}</div>
+                                </div>
+                            </div>
+                        `;
+                    }).join('');
+                }
+            }
+        }
+
+        // 検索条件のクリア関数
+        function clearSearch() {
+            if(document.getElementById('searchName')) document.getElementById('searchName').value = '';
+            if(document.getElementById('searchCategory')) document.getElementById('searchCategory').value = '';
+            if(document.getElementById('searchDate')) document.getElementById('searchDate').value = '';
+            renderBasic();
+        }
 
         // 2. スケジュールバーの表示
      function renderSchedule() {
