@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>工場入場 判断フォーム</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://static.worksmobile.net/static/wm/woff/edge/3.7.1/sdk.js"></script>
+    <style>
+        body { font-family: sans-serif; }
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <header class="bg-white shadow-sm p-4 mb-4">
+        <h1 class="text-center font-bold text-lg text-gray-700">工場入場 判断依頼一覧</h1>
+    </header>
+
+    <div id="loading" class="fixed inset-0 bg-white bg-opacity-80 flex justify-center items-center z-50 hidden">
+        <div class="flex flex-col items-center"><div class="loader mb-2"></div><p id="loadingText" class="text-sm text-gray-600 font-bold">通信中...</p></div>
+    </div>
+
+    <main class="px-4 pb-20 max-w-lg mx-auto">
+        <div id="judgementList" class="space-y-4">
+            </div>
+        
+        <div id="emptyState" class="hidden text-center py-20">
+            <p class="text-gray-400 font-bold">現在、判断待ちの申請はありません。</p>
+        </div>
+    </main>
+
+    <script>
+        const GAS_URL = "https://script.google.com/macros/s/AKfycbyKgHIo5Gb_2PMIaOSBs5BLzeu9Lsz5KW8eiTZnYDhZolIebOz7x3kzE98Y6SIEIiMt/exec"; 
+        const WOFF_ID = "【判断フォーム用のWOFF_ID】";
+        let presidentUser = { name: "社長" }; // デフォルト
+
+        window.onload = () => {
+            if (typeof woff !== 'undefined' && woff.init) {
+                woff.init({ woffId: WOFF_ID })
+                .then(() => woff.getProfile())
+                .then(profile => {
+                    presidentUser.name = profile.displayName;
+                    fetchJudgeList();
+                })
+                .catch(() => fetchJudgeList()); // ブラウザ起動時用
+            } else {
+                fetchJudgeList();
+            }
+        }
+
+        function showLoading(show, text = "通信中...") {
+            document.getElementById('loadingText').textContent = text;
+            document.getElementById('loading').style.display = show ? 'flex' : 'none';
+        }
+
+        async function fetchGasPost(action, payload) {
+            const res = await fetch(GAS_URL, {
+                method: "POST",
+                headers: { "Content-Type": "text/plain" },
+                body: JSON.stringify({ action: action, payload: payload })
+            });
+            return res.json();
+        }
+
+        async function fetchJudgeList() {
+            showLoading(true, "未判断リストを取得中...");
+            try {
+                const json = await fetchGasPost('getList', {});
+                if (json.status === 'success') {
+                    // 「判断待ち」のデータのみをフィルタリング
+                    const pendingList = json.data.filter(item => item.status === '判断待ち');
+                    renderList(pendingList);
+                }
+            } catch (e) {
+                alert("リストの取得に失敗しました。");
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        function renderList(list) {
+            const container = document.getElementById('judgementList');
+            const empty = document.getElementById('emptyState');
+            
+            if (!list || list.length === 0) {
+                container.innerHTML = "";
+                empty.classList.remove('hidden');
+                return;
+            }
+
+            empty.classList.add('hidden');
+            container.innerHTML = list.map(item => `
+                <div class="bg-white rounded-xl shadow-md overflow-hidden border border-gray-200">
+                    <div class="bg-gray-50 px-4 py-2 border-b border-gray-100 flex justify-between items-center">
+                        <span class="text-xs font-bold text-gray-500">申請者: ${item.userName}</span>
+                        <span class="text-xs text-gray-400">${item.uid}</span>
+                    </div>
+                    <div class="p-4 space-y-2">
+                        <div class="flex items-start">
+                            <span class="w-20 text-sm font-bold text-gray-500">入場日</span>
+                            <span class="text-sm font-bold text-gray-800">${item.entryDate}</span>
+                        </div>
+                        <div class="flex items-start">
+                            <span class="w-20 text-sm font-bold text-gray-500">予定時間</span>
+                            <span class="text-sm text-gray-800">${item.startTime} ～ ${item.endTime}</span>
+                        </div>
+                        <div class="flex items-start">
+                            <span class="w-20 text-sm font-bold text-gray-500">所属/人数</span>
+                            <span class="text-sm text-gray-800">${item.affiliation}（${item.peopleCount}名）</span>
+                        </div>
+                        <div class="flex items-start">
+                            <span class="w-20 text-sm font-bold text-gray-500">場所</span>
+                            <span class="text-sm font-bold text-blue-600">${item.factoryType}</span>
+                        </div>
+                        <div class="flex items-start">
+                            <span class="w-20 text-sm font-bold text-gray-500">目的</span>
+                            <span class="text-sm text-gray-700">${item.purpose}</span>
+                        </div>
+                        
+                        <div class="mt-4 pt-4 border-t border-gray-100">
+                            <label class="block text-xs font-bold text-gray-400 mb-1">コメント（却下時は入力必須）</label>
+                            <textarea id="comment-${item.uid}" rows="2" class="w-full border border-gray-200 rounded p-2 text-sm outline-none focus:border-blue-400" placeholder="メッセージを入力..."></textarea>
+                        </div>
+                        
+                        <div class="flex gap-3 mt-4">
+                            <button onclick="submitJudgment('${item.uid}', '却下')" class="flex-1 bg-white border-2 border-red-500 text-red-500 font-bold py-2 rounded-lg hover:bg-red-50 transition">
+                                却下
+                            </button>
+                            <button onclick="submitJudgment('${item.uid}', '許可')" class="flex-1 bg-green-500 text-white font-bold py-2 rounded-lg hover:bg-green-600 shadow-md transition">
+                                許可する
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function submitJudgment(uid, judgment) {
+            const comment = document.getElementById(`comment-${uid}`).value.trim();
+
+            // 却下の場合はコメント入力を必須にする
+            if (judgment === '却下' && !comment) {
+                alert("却下する場合は、理由をコメント欄に入力してください。");
+                return;
+            }
+
+            if (!confirm(`${judgment}処理を実行しますか？`)) return;
+
+            showLoading(true, "処理中...");
+            try {
+                const data = {
+                    uid: uid,
+                    judgment: judgment, // '許可' または '却下'
+                    comment: comment,
+                    execUserName: presidentUser.name
+                };
+
+                const json = await fetchGasPost('judge', data);
+                if (json.status === 'success') {
+                    alert(`${judgment}処理が完了しました。`);
+                    fetchJudgeList(); // リストを再更新
+                } else {
+                    throw new Error(json.message);
+                }
+            } catch (e) {
+                alert("エラーが発生しました: " + e.message);
+            } finally {
+                showLoading(false);
+            }
+        }
+    </script>
+</body>
+</html>
