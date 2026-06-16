@@ -84,8 +84,15 @@
             </div>
         </section>
 
-        <section id="tab-history" class="hidden">
-            <h3 class="font-bold text-gray-700 mb-3 ml-1">入場申請履歴（直近）</h3>
+       <section id="tab-history" class="hidden">
+            <div class="flex justify-between items-center mb-3 ml-1">
+                <h3 class="font-bold text-gray-700">入場申請履歴</h3>
+                <select id="sortOrder" onchange="applySortAndRender()" class="text-sm border border-gray-300 rounded p-1 bg-white outline-none">
+                    <option value="applyDesc">申請が新しい順</option>
+                    <option value="entryAsc">入場日が近い順</option>
+                    <option value="entryDesc">入場日が遠い順</option>
+                </select>
+            </div>
             <div id="historyList" class="space-y-3"></div>
         </section>
     </main>
@@ -95,7 +102,8 @@
         const WOFF_ID = "nR8R-Z199Y6TPvMn6beGyA";
         let currentUser = { id: "", name: "" };
         let isFallbackMode = false;
-
+        let historyData = [];
+        
         window.onload = () => {
             if (typeof woff !== 'undefined' && woff.init) {
                 woff.init({ woffId: WOFF_ID })
@@ -249,13 +257,43 @@
                 // バックエンドの getRequestList を呼び出し
                 const json = await fetchGasPost('getList', { userId: currentUser.id });
                 if (json.status === 'success') {
-                    // 全データから自分の申請分だけをフィルタリング
-                    renderHistory(json.data.filter(item => item.applicantId === currentUser.id));
+                    // 自分のデータだけを抽出してグローバル変数に保存
+                    historyData = json.data.filter(item => item.applicantId === currentUser.id);
+                    // ソートと表示を実行
+                    applySortAndRender()
                 }
             } catch (e) { alert("履歴の取得に失敗しました。"); }
             finally { showLoading(false); }
         }
 
+// ★新規追加: ソートを実行して画面を描画する関数
+        function applySortAndRender() {
+            const sortOrder = document.getElementById('sortOrder').value;
+            let sortedList = [...historyData]; // 元データを崩さないようにコピーを作成
+
+            if (sortOrder === 'applyDesc') {
+                // 申請が新しい順（スプレッドシートの下から上へ）
+                sortedList.reverse(); 
+            } else if (sortOrder === 'entryAsc') {
+                // 入場日が近い順（日付が古い順）
+                sortedList.sort((a, b) => {
+                    // 日付と時間を結合して比較可能な数値（ミリ秒）にする
+                    const dateA = new Date(`${a.entryDate} ${a.startTime}`).getTime();
+                    const dateB = new Date(`${b.entryDate} ${b.startTime}`).getTime();
+                    return dateA - dateB;
+                });
+            } else if (sortOrder === 'entryDesc') {
+                // 入場日が遠い順（日付が未来順）
+                sortedList.sort((a, b) => {
+                    const dateA = new Date(`${a.entryDate} ${a.startTime}`).getTime();
+                    const dateB = new Date(`${b.entryDate} ${b.startTime}`).getTime();
+                    return dateB - dateA; // entryAscの逆
+                });
+            }
+
+            renderHistory(sortedList);
+        }
+        
         function renderHistory(list) {
             const container = document.getElementById('historyList');
             if (!list || list.length === 0) return container.innerHTML = '<div class="bg-white p-4 text-center text-sm text-gray-500">履歴はありません</div>';
