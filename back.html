@@ -1,105 +1,297 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>承認処理</title>
-  <script src="https://static.worksmobile.net/static/wm/woff/edge/send.js"></script>
-  <style>
-    body {
-      font-family: sans-serif;
-      text-align: center;
-      margin-top: 50px;
-      background-color: #f5f5f5;
-    }
-    .container {
-      background: #fff;
-      padding: 30px 20px;
-      border-radius: 12px;
-      margin: 0 20px;
-      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-    }
-    #status-icon { font-size: 40px; margin-bottom: 10px; }
-    #message { font-size: 16px; color: #333; font-weight: bold; }
-    #sub-message { font-size: 12px; color: #666; margin-top: 10px; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>工場入場許可申請</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://static.worksmobile.net/static/wm/woff/edge/3.7.1/sdk.js"></script>
+    <style>
+        body { font-family: sans-serif; }
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
 </head>
-<body>
-  <div class="container">
-    <div id="status-icon">⏳</div>
-    <div id="message">認証情報を取得中...</div>
-    <div id="sub-message">画面を閉じずにお待ちください</div>
-  </div>
+<body class="bg-gray-100 text-gray-800">
 
-  <script>
-    // ⚠️ ここに Developer Console で発行した WOFF ID と GASのURL を入力してください
-    const WOFF_ID = "fwks1vLA5ED1cQGHnGkpnQ";
-    const GAS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbz2_fHa_RIfgUo2tsl38mJtTs-x93N8AUUvaYlb4qlK1HQa8xY9yKb_RNZ2r2zlVyeq/exec";
+    <nav id="mainNav" class="bg-white shadow-sm mb-4">
+        <div class="flex justify-around">
+            <button id="tabBtn-apply" class="flex-1 py-3 text-sm font-bold text-blue-600 border-b-2 border-blue-600 transition" onclick="switchTab('apply')">申請</button>
+            <button id="tabBtn-history" class="flex-1 py-3 text-sm font-bold text-gray-400 border-b-2 border-transparent transition" onclick="switchTab('history')">履歴・取消</button>
+        </div>
+    </nav>
 
-    window.onload = function() {
-      // 1. WOFFの初期化
-      woff.init({ woffId: WOFF_ID })
-        .then(() => {
-          document.getElementById("message").innerText = "承認処理を実行中...";
-          processApproval();
-        })
-        .catch((err) => {
-          showError("WOFF初期化エラー: LINE WORKSアプリから開いてください。");
-        });
-    };
+    <div id="loading" class="fixed inset-0 bg-white bg-opacity-80 flex justify-center items-center z-50 hidden">
+        <div class="flex flex-col items-center"><div class="loader mb-2"></div><p id="loadingText" class="text-sm text-gray-600 font-bold">通信中...</p></div>
+    </div>
 
-    function processApproval() {
-      // 2. URLから パラメータ（?id=12345&action=approve）を取得
-      const urlParams = new URLSearchParams(window.location.search);
-      const requestId = urlParams.get('id');
-      const action = urlParams.get('action');
+    <main class="px-4 pb-8 max-w-lg mx-auto">
+        <section id="tab-apply">
+            <div class="bg-white p-5 rounded-lg shadow-sm border border-gray-100">
+                <div class="bg-blue-50 border-l-4 border-blue-500 p-3 rounded mb-5">
+                    <p class="text-xs text-blue-700 font-bold mb-1">申請者情報</p>
+                    <div class="flex items-center gap-2">
+                        <input type="text" id="userName" class="w-full bg-transparent font-bold text-gray-800 outline-none" placeholder="情報を取得中..." readonly>
+                        <button id="authByNameBtn" onclick="authenticateByName()" class="hidden bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2 rounded shadow whitespace-nowrap">連携</button>
+                    </div>
+                    <p id="fallbackMessage" class="text-xs text-red-500 mt-2 hidden">※氏名を漢字で入力して「連携」ボタンを押してください。</p>
+                </div>
 
-      if (!requestId || action !== "approve") {
-        showError("無効なリクエストです。");
-        return;
-      }
+                <div class="mb-4">
+                    <label class="block text-sm font-bold mb-1 text-gray-700">所属名（社名など）</label>
+                    <input type="text" id="affiliation" class="w-full border border-gray-300 rounded-md p-2.5 bg-white outline-none" placeholder="株式会社〇〇">
+                </div>
 
-      // 3. WOFFから「現在開いている人」のプロフィールを取得！
-      woff.getProfile().then((profile) => {
+                <div class="mb-4">
+                    <label class="block text-sm font-bold mb-1 text-gray-700">入場人数（合計）</label>
+                    <div class="flex items-center gap-2">
+                        <input type="number" id="peopleCount" class="w-1/3 border border-gray-300 rounded-md p-2.5 bg-white outline-none" value="1" min="1">
+                        <span class="font-bold text-gray-600">名</span>
+                    </div>
+                </div>
+
+                <div class="mb-4">
+                    <label class="block text-sm font-bold mb-1 text-gray-700">見学場所（入場場所）</label>
+                    <select id="factoryType" class="w-full border border-gray-300 rounded-md p-2.5 bg-white outline-none">
+                        <option value="第一工場のみ">第一工場のみ</option>
+                        <option value="第二工場のみ">第二工場のみ</option>
+                        <option value="両方">両方</option>
+                    </select>
+                </div>
+
+                <div class="mb-5 border border-gray-200 p-4 rounded-md bg-gray-50">
+                    <label class="block text-sm font-bold mb-2 text-gray-700">入場日</label>
+                    <input type="date" id="entryDate" class="w-full border border-gray-300 rounded p-2 outline-none">
+                </div>
+
+                <div class="mb-5">
+                    <label class="block text-sm font-bold mb-1 text-gray-700">予定時間</label>
+                    <div class="flex items-center gap-2">
+                        <input type="time" id="startTime" class="flex-1 border border-gray-300 rounded p-2 bg-white outline-none">
+                        <span class="text-gray-500 font-bold">～</span>
+                        <input type="time" id="endTime" class="flex-1 border border-gray-300 rounded p-2 bg-white outline-none">
+                    </div>
+                </div>
+
+                <div class="mb-6">
+                    <label class="block text-sm font-bold mb-1 text-gray-700">入場目的</label>
+                    <textarea id="purpose" rows="3" class="w-full border border-gray-300 rounded-md p-2 bg-white outline-none" placeholder="例：設備メンテナンス、見学など"></textarea>
+                </div>
+
+                <button id="submitBtn" onclick="submitApplication()" class="w-full bg-blue-600 text-white font-bold py-3.5 rounded-lg shadow-md hover:bg-blue-700 transition">
+                    入場申請を送信する
+                </button>
+            </div>
+        </section>
+
+        <section id="tab-history" class="hidden">
+            <h3 class="font-bold text-gray-700 mb-3 ml-1">入場申請履歴（直近）</h3>
+            <div id="historyList" class="space-y-3"></div>
+        </section>
+    </main>
+
+    <script>
+        const GAS_URL = "【あなたのGASのURL】"; 
+        const WOFF_ID = "【あなたのWOFF_ID】";
+        let currentUser = { id: "", name: "" };
+        let isFallbackMode = false;
+
+        window.onload = () => {
+            if (typeof woff !== 'undefined' && woff.init) {
+                woff.init({ woffId: WOFF_ID })
+                .then(() => woff.getProfile())
+                .then(profile => {
+                    currentUser.id = profile.userId;
+                    initApp('apply');
+                })
+                .catch(() => activateFallbackMode('apply'));
+            } else {
+                activateFallbackMode('apply');
+            }
+        }
         
-        // GASに送るデータの箱を作成
-        const payload = {
-          type: "woff_approve", // GAS側で識別するための目印
-          id: requestId,
-          approverName: profile.displayName, // 💡 これが欲しかった「本当の名前」！
-          approverId: profile.userId
-        };
+        function activateFallbackMode(targetTab) {
+            isFallbackMode = true;
+            const un = document.getElementById('userName');
+            un.placeholder = "氏名を漢字で入力";
+            un.removeAttribute('readonly');
+            un.classList.remove('bg-transparent', 'font-bold');
+            un.classList.add('border', 'border-gray-300', 'bg-white', 'p-2', 'rounded-md');
+            document.getElementById('authByNameBtn').classList.remove('hidden');
+            document.getElementById('fallbackMessage').classList.remove('hidden');
+            switchTab(targetTab);
+        }
 
-        // 4. GASの doPost へ送信
-        fetch(GAS_WEBAPP_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain' }, // GASのCORS制約を回避するため plain を使用
-          body: JSON.stringify(payload)
-        })
-        .then(response => response.json())
-        .then(data => {
-          if (data.success) {
-            // 5. 成功したら画面を書き換えて、1.5秒後に自動で閉じる
-            document.getElementById("status-icon").innerText = "✅";
-            document.getElementById("message").innerText = "承認が完了しました！";
-            document.getElementById("message").style.color = "#4CAF50";
-            document.getElementById("sub-message").innerText = "自動的に画面が閉じます...";
+        async function initApp(targetTab) {
+            showLoading(true, "ユーザー情報を取得中...");
+            try {
+                const json = await fetchGasPost('getUser', { userId: currentUser.id });
+                if (json.status === 'success' && json.data.userName) {
+                    currentUser.name = json.data.userName;
+                    document.getElementById('userName').value = currentUser.name;
+                } else { throw new Error(); }
+                switchTab(targetTab);
+            } catch (e) { activateFallbackMode(targetTab); }
+            finally { showLoading(false); }
+        }
+
+        async function authenticateByName() {
+            const nameInput = document.getElementById('userName').value.trim();
+            if (!nameInput) return alert("氏名を入力してください。");
+            showLoading(true, "マスタと連携中...");
+            try {
+                const json = await fetchGasPost('getUserByName', { userName: nameInput });
+                if (json.status === 'success' && json.data) {
+                    currentUser.id = json.data.userId;
+                    currentUser.name = json.data.userName;
+                    const un = document.getElementById('userName');
+                    un.setAttribute('readonly', 'true');
+                    un.classList.remove('border', 'border-gray-300', 'bg-white');
+                    un.classList.add('bg-transparent', 'font-bold');
+                    document.getElementById('authByNameBtn').classList.add('hidden');
+                    document.getElementById('fallbackMessage').classList.add('hidden');
+                    alert(`「${currentUser.name}」さんとして連携しました。`);
+                    switchTab('apply');
+                } else { alert("マスタに該当する名前が見つかりません。"); }
+            } catch (e) { alert("通信エラーが発生しました。"); }
+            finally { showLoading(false); }
+        }
+
+        function switchTab(tabId) {
+            ['apply', 'history'].forEach(id => {
+                const section = document.getElementById('tab-' + id);
+                const btn = document.getElementById('tabBtn-' + id);
+                if (id === tabId) {
+                    section?.classList.remove('hidden');
+                    btn?.classList.add('text-blue-600', 'border-blue-600');
+                    btn?.classList.remove('text-gray-400', 'border-transparent');
+                } else {
+                    section?.classList.add('hidden');
+                    btn?.classList.remove('text-blue-600', 'border-blue-600');
+                    btn?.classList.add('text-gray-400', 'border-transparent');
+                }
+            });
+            if (tabId === 'history') {
+                if (isFallbackMode && !currentUser.id) {
+                    alert("まずは氏名を連携してください。");
+                    switchTab('apply');
+                } else { fetchListData(); }
+            }
+        }
+
+        function showLoading(show, text = "通信中...") {
+            document.getElementById('loadingText').textContent = text;
+            document.getElementById('loading').style.display = show ? 'flex' : 'none';
+        }
+
+        async function fetchGasPost(action, payload) {
+            const res = await fetch(GAS_URL, {
+                method: "POST",
+                headers: { "Content-Type": "text/plain" },
+                body: JSON.stringify({ action: action, payload: payload })
+            });
+            return res.json();
+        }
+
+        async function submitApplication() {
+            if (isFallbackMode && !currentUser.id) {
+                alert("申請を行う前に、氏名の連携を行ってください。");
+                return;
+            }
+
+            const affiliation = document.getElementById('affiliation').value;
+            const peopleCount = document.getElementById('peopleCount').value;
+            const factoryType = document.getElementById('factoryType').value;
+            const entryDate = document.getElementById('entryDate').value;
+            const startTime = document.getElementById('startTime').value;
+            const endTime = document.getElementById('endTime').value;
+            const purpose = document.getElementById('purpose').value;
+
+            if (!affiliation || !entryDate || !startTime || !endTime || !purpose) {
+                return alert("未入力の項目があります。");
+            }
+
+            if (startTime >= endTime) {
+                return alert("終了時間は開始時間より後の時間を指定してください。");
+            }
+
+            const data = {
+                userId: currentUser.id, 
+                userName: currentUser.name,
+                affiliation: affiliation,
+                peopleCount: peopleCount,
+                factoryType: factoryType,
+                entryDate: entryDate,
+                startTime: startTime,
+                endTime: endTime,
+                purpose: purpose
+            };
+
+            showLoading(true, "送信中...");
+            try {
+                const json = await fetchGasPost('submit', data);
+                if (json.status === 'success') { 
+                    alert("入場申請が完了しました。判断をお待ちください。");
+                    if(typeof woff !== 'undefined' && woff.isLoggedIn && woff.isLoggedIn()) { 
+                        woff.closeWindow(); 
+                    } else { location.reload(); }
+                } else throw new Error(json.message);
+            } catch (e) { 
+                alert("送信失敗: " + e.message); 
+            } finally { 
+                showLoading(false); 
+            }
+        }
+
+        async function fetchListData() {
+            showLoading(true, "履歴を取得中...");
+            try {
+                // バックエンドの getRequestList を呼び出し
+                const json = await fetchGasPost('getList', { userId: currentUser.id });
+                if (json.status === 'success') {
+                    // 全データから自分の申請分だけをフィルタリング
+                    renderHistory(json.data.filter(item => item.applicantId === currentUser.id));
+                }
+            } catch (e) { alert("履歴の取得に失敗しました。"); }
+            finally { showLoading(false); }
+        }
+
+        function renderHistory(list) {
+            const container = document.getElementById('historyList');
+            if (!list || list.length === 0) return container.innerHTML = '<div class="bg-white p-4 text-center text-sm text-gray-500">履歴はありません</div>';
             
-            setTimeout(() => { woff.closeWindow(); }, 1500);
-          } else {
-            showError("サーバーエラー: " + data.error);
-          }
-        })
-        .catch(err => showError("通信エラーが発生しました。"));
-      }).catch(err => showError("プロフィールの取得に失敗しました。"));
-    }
-
-    function showError(text) {
-      document.getElementById("status-icon").innerText = "❌";
-      document.getElementById("message").innerText = text;
-      document.getElementById("message").style.color = "#F44336";
-      document.getElementById("sub-message").innerText = "右上の✕で画面を閉じてください";
-    }
-  </script>
+            container.innerHTML = list.map(item => {
+                const statusColor = item.status === '許可' ? 'border-green-500' : (item.status === '却下' || item.status === '取消完了' ? 'border-red-400' : 'border-yellow-400');
+                return `
+                    <div class="bg-white p-4 rounded-lg shadow-sm border border-l-4 ${statusColor}">
+                        <div class="flex justify-between items-center mb-2">
+                            <span class="font-bold text-gray-800">${item.affiliation}（${item.peopleCount}名）</span>
+                            <span class="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full font-bold">${item.status}</span>
+                        </div>
+                        <div class="text-sm text-gray-600 space-y-1 mb-3">
+                            <p>入場日: ${item.entryDate}</p>
+                            <p>場所: ${item.factoryType || '未指定'}</p>
+                            <p>時間: ${item.startTime} ～ ${item.endTime}</p>
+                        </div>
+                        ${(item.status === '判断待ち' || item.status === '許可') ? 
+                            `<button class="w-full text-red-500 bg-red-50 border border-red-200 hover:bg-red-100 font-bold rounded-md py-2 transition text-sm" onclick="cancelRequest('${item.uid}')">申請を取り消す</button>` : 
+                            ''
+                        }
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        async function cancelRequest(uid) {
+            if(!confirm("この入場申請を取り消しますか？")) return;
+            showLoading(true, "取消処理中...");
+            try {
+                const json = await fetchGasPost('cancel', { uid: uid });
+                if (json.status === 'success') { alert("取り消しました。"); fetchListData(); }
+                else throw new Error(json.message);
+            } catch (e) { alert("エラー: " + e.message); }
+            finally { showLoading(false); }
+        }
+    </script>
 </body>
 </html>
