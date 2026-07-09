@@ -120,7 +120,7 @@
                         </div>
                         
                         <div class="mt-4 pt-4 border-t border-gray-100">
-                            <label class="block text-xs font-bold text-gray-400 mb-1">コメント（却下時は入力必須）</label>
+                            <label class="block text-xs font-bold text-gray-400 mb-1">許可・却下理由（却下時は入力必須）</label>
                             <textarea id="comment-${item.uid}" rows="2" class="w-full border border-gray-200 rounded p-2 text-sm outline-none focus:border-blue-400" placeholder="メッセージを入力..."></textarea>
                         </div>
                         
@@ -142,7 +142,7 @@
 
             // 却下の場合はコメント入力を必須にする
             if (judgment === '却下' && !comment) {
-                alert("却下する場合は、理由をコメント欄に入力してください。");
+                alert("却下する場合は、却下理由を入力してください。");
                 return;
             }
 
