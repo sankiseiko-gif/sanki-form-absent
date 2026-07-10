@@ -86,6 +86,9 @@
 
                 <div class="mb-5">
                     <label class="block text-sm font-bold mb-1 text-gray-700">時間</label>
+                        <p id="timeInputNotice" class="text-xs text-gray-500 mb-2 hidden">
+                        ※直接時刻を入力してください。対応形式：「8:30」「0830」「１２：３０」など
+                        </p>
                     <div class="flex items-center gap-2">
                         <input type="time" id="startTime" class="flex-1 border border-gray-300 rounded p-2 bg-white outline-none">
                         <span class="text-gray-500 font-bold">～</span>
@@ -117,6 +120,25 @@
         let isFallbackMode = false;
 
         window.onload = () => {
+            //android用に追加、時刻入力をテキスト形式に変更(2026/7/10)
+            if (/Android/i.test(navigator.userAgent)) {
+                
+                document.getElementById("timeInputNotice").classList.remove("hidden");
+                
+   　        ["startTime", "endTime"].forEach(id => {
+                const el = document.getElementById(id); 
+                el.type = "text";
+                el.placeholder = "08:30";
+                el.inputMode = "numeric";
+                el.maxLength = 6;
+
+                // 入力終了時に整形
+                el.addEventListener("blur", () => {
+                el.value = normalizeTime(el.value);
+                });
+            });
+            }
+            
             if (typeof woff !== 'undefined' && woff.init) {
                 woff.init({ woffId: WOFF_ID })
                 .then(() => woff.getProfile())
@@ -251,6 +273,36 @@
             else { ew.classList.add('hidden'); lb.classList.add('hidden'); ew.value = ''; }
         }
 
+        //android用に追加、時刻入力の補正(2026/7/10)
+        function normalizeTime(str) {
+            if (!str) return "";
+            // 前後の空白削除
+            str = str.trim();
+            // 全角数字→半角
+            str = str.replace(/[０-９]/g, s =>
+            String.fromCharCode(s.charCodeAt(0) - 0xFEE0)
+            );
+            // 全角コロン→半角
+            str = str.replace(/：/g, ":");
+            // コロンなし
+            if (/^\d{4}$/.test(str)) {
+            str = str.slice(0,2) + ":" + str.slice(2);
+            }
+            // 3桁 (830 → 08:30)
+            else if (/^\d{3}$/.test(str)) {
+            str = "0" + str[0] + ":" + str.slice(1);
+            }
+            // 8:30 → 08:30
+            else if (/^\d:\d{2}$/.test(str)) {
+            str = "0" + str;
+            }
+            // 最終チェック
+            if (!/^([01]\d|2[0-3]):([0-5]\d)$/.test(str)) {
+            return "";
+            }
+        return str;
+        }
+
         async function fetchGasPost(action, payload) {
             const res = await fetch(GAS_URL, {
                 method: "POST",
@@ -274,7 +326,10 @@
             const eDateVal = isPeriod ? document.getElementById('endDate').value : sDateVal;
             const sTimeVal = document.getElementById('startTime').value;
             const eTimeVal = document.getElementById('endTime').value;
-
+            //入力補正追加(2026/7/10)
+            document.getElementById('startTime').value = sTimeVal;
+            document.getElementById('endTime').value = eTimeVal;
+             
             // 1. 必須項目の入力チェック
             if (!typeVal || !catVal || !sDateVal || !sTimeVal || !eTimeVal) {
                 return alert("必須項目（種別、区分、開始日、開始時刻、終了時刻）を入力してください。");
