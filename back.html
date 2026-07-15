@@ -66,6 +66,11 @@
 
                 <div class="mb-5">
                     <label class="block text-sm font-bold mb-1 text-gray-700">予定時間</label>
+
+                       <p id="timeInputNotice" class="text-xs text-gray-500 mb-2 hidden">
+                     ※Androidで入力できない場合は「8:30」「0830」「１２：３０」などでも入力できます。
+                     </p>
+
                     <div class="flex items-center gap-2">
                         <input type="time" id="startTime" class="flex-1 border border-gray-300 rounded p-2 bg-white outline-none">
                         <span class="text-gray-500 font-bold">～</span>
@@ -105,6 +110,24 @@
         let historyData = [];
         
         window.onload = () => {
+
+            // Android Chromeの時刻入力対策
+            if (/Android/i.test(navigator.userAgent)) {
+                ["startTime", "endTime"].forEach(id => {
+                const el = document.getElementById(id);
+                    el.type = "text";
+                    el.placeholder = "08:30";
+                    el.inputMode = "numeric";
+                    el.maxLength = 6;
+
+                    // 入力終了時に整形
+                    el.addEventListener("blur", () => {
+                    el.value = normalizeTime(el.value);
+                    });
+                });
+            }
+
+
             if (typeof woff !== 'undefined' && woff.init) {
                 woff.init({ woffId: WOFF_ID })
                 .then(() => woff.getProfile())
@@ -165,6 +188,45 @@
             finally { showLoading(false); }
         }
 
+        //android用時刻入力補正
+        function normalizeTime(str) {
+
+            if (!str) return "";
+
+             // 前後の空白削除
+                str = str.trim();
+
+             // 全角数字→半角
+                str = str.replace(/[０-９]/g, s =>
+                String.fromCharCode(s.charCodeAt(0) - 0xFEE0)
+                 );
+
+             // 全角コロン→半角
+                str = str.replace(/：/g, ":");
+
+             // コロンなし
+                if (/^\d{4}$/.test(str)) {
+                 str = str.slice(0,2) + ":" + str.slice(2);
+                 }
+
+             // 3桁 (830 → 08:30)
+                else if (/^\d{3}$/.test(str)) {
+                str = "0" + str[0] + ":" + str.slice(1);
+                 }
+
+             // 8:30 → 08:30
+                 else if (/^\d:\d{2}$/.test(str)) {
+                 str = "0" + str;
+                  }
+
+             // 最終チェック
+                 if (!/^([01]\d|2[0-3]):([0-5]\d)$/.test(str)) {
+                 return "";
+                }
+            return str;
+        }
+
+
         function switchTab(tabId) {
             ['apply', 'history'].forEach(id => {
                 const section = document.getElementById('tab-' + id);
@@ -211,9 +273,13 @@
             const peopleCount = document.getElementById('peopleCount').value;
             const factoryType = document.getElementById('factoryType').value;
             const entryDate = document.getElementById('entryDate').value;
-            const startTime = document.getElementById('startTime').value;
-            const endTime = document.getElementById('endTime').value;
+            const startTime = normalizeTime(document.getElementById('startTime').value);
+            const endTime = normalizeTime(document.getElementById('endTime').value);
             const purpose = document.getElementById('purpose').value;
+
+            document.getElementById('startTime').value = startTime;
+            document.getElementById('endTime').value = endTime;
+
 
             if (!affiliation || !entryDate || !startTime || !endTime || !purpose) {
                 return alert("未入力の項目があります。");
