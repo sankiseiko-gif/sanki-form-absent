@@ -116,6 +116,12 @@
     <script>
         const GAS_URL = "https://script.google.com/macros/s/AKfycbxwEuHjXVsUjbhH9Bo5yQ3vgln5LM615sKftO5pQgzjpPzpRvXuxMcqmyNTNhEhaQeZ/exec"; 
         const WOFF_ID = "RAj4F7BMV-oVhCo-nRSaXw";
+        // ---- 2026/09/04 変更履歴 (ver3 -> ver4) ----
+        // ・送信時に normalizeTime() を実際に通すよう修正した。
+        //   従来は読み取った値をそのまま書き戻すだけで、補正が効いていなかった。
+        // ・時刻の「未入力」と「形式が不正」を区別して案内するようにした。
+        // ※ ADMIN_KEY はこの画面には持たせないこと(総務画面専用)。
+        // -------------------------------------------
         let currentUser = { id: "", name: "" };
         let isFallbackMode = false;
 
@@ -324,11 +330,21 @@
             const sDateVal = document.getElementById('startDate').value;
             // 期間指定がONならendDateの値を、OFFならstartDateの値を終了日とする
             const eDateVal = isPeriod ? document.getElementById('endDate').value : sDateVal;
-            const sTimeVal = document.getElementById('startTime').value;
-            const eTimeVal = document.getElementById('endTime').value;
-            //入力補正追加(2026/7/10)
+            // 【修正】従来は読み取った値をそのまま書き戻すだけで normalizeTime() を通していなかった。
+            //         iOS/PCの type="time" は既に "HH:mm" を返すため、通しても値は変わらない。
+            //         Android(type="text")のときだけ "0830" → "08:30" などの補正が効く。
+            const sTimeRaw = document.getElementById('startTime').value;
+            const eTimeRaw = document.getElementById('endTime').value;
+            const sTimeVal = normalizeTime(sTimeRaw);
+            const eTimeVal = normalizeTime(eTimeRaw);
             document.getElementById('startTime').value = sTimeVal;
             document.getElementById('endTime').value = eTimeVal;
+
+            // 0. 「未入力」と「形式が不正」を区別して案内する
+            //    (normalizeTime は形式が不正なとき空文字を返すため、そのままだと未入力扱いになってしまう)
+            if ((sTimeRaw && !sTimeVal) || (eTimeRaw && !eTimeVal)) {
+                return alert("時刻の形式が正しくありません。「8:30」「0830」のように入力してください。");
+            }
              
             // 1. 必須項目の入力チェック
             if (!typeVal || !catVal || !sDateVal || !sTimeVal || !eTimeVal) {
