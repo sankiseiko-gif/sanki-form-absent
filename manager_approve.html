@@ -82,6 +82,25 @@
             return res.json();
         }
 
+        // ---- 2026/09/04 変更履歴 (初版 -> ver2) ----
+        // ・氏名と理由を innerHTML に埋める箇所を esc() 経由にした。
+        // ・使われていない currentUser.role への代入を削除した(GAS側も role を返さなくなった)。
+        // -------------------------------------------
+
+        // 【追加】HTMLとして解釈されると困る文字を、ただの文字に変換する。
+        //         innerHTML に値を埋める箇所では必ずこれを通すこと。
+        //         通さないと、理由欄の "<" 以降が表示されなくなったり、
+        //         <img src=x onerror="..."> のようなタグを書かれると
+        //         この画面を開いた人のブラウザでスクリプトが動いてしまう。
+        function esc(v) {
+            return String(v == null ? '' : v)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
         function showLoading(show, text = "通信中...") {
             document.getElementById('loadingText').textContent = text;
             document.getElementById('loading').style.display = show ? 'flex' : 'none';
@@ -93,7 +112,8 @@
                 const json = await fetchGasPost('getUser', { userId: currentUser.id });
                 if (json.status === 'success' && json.data.userName) {
                     currentUser.name = json.data.userName;
-                    currentUser.role = json.data.role;
+                    // 【削除】currentUser.role は代入するだけで参照していなかった。
+                    //         GAS側も role を返さなくなったため削除する。
                     verifyRoleAndLoad();
                 } else throw new Error("ユーザー不明");
             } catch (e) {
@@ -154,7 +174,7 @@
                 return `
                 <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200 border-l-4 border-l-blue-500" id="card-${item.uid}">
                     <div class="flex justify-between items-center mb-3">
-                        <span class="font-bold text-gray-800 text-lg">${item.userName}</span>
+                        <span class="font-bold text-gray-800 text-lg">${esc(item.userName)}</span>
                         <span class="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-full border">${item.status}</span>
                     </div>
                     
@@ -175,7 +195,7 @@
                         
                         <div class="col-span-2 mt-1">
                             <span class="font-bold text-gray-500 text-xs block mb-0.5">理由</span>
-                            <div class="whitespace-pre-wrap">${item.reason || 'なし'}</div>
+                            <div class="whitespace-pre-wrap">${item.reason ? esc(item.reason) : 'なし'}</div>
                         </div>
                     </div>
 
