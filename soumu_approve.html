@@ -21,10 +21,10 @@
     <header class="bg-white shadow-sm sticky top-0 z-40">
         <div class="max-w-5xl mx-auto px-4 py-4 flex justify-between items-center">
             <h1 class="text-xl font-bold text-gray-900">総務管理ダッシュボード</h1>
-       　   <button id="updateBtn" onclick="fetchAllData()" class="bg-gray-100 hover:bg-gray-200 px-4 py-2 rounded text-sm font-bold transition flex items-center justify-center gap-1 min-w-[140px]">
+            <button id="updateBtn" onclick="fetchAllData()" class="bg-gray-100 hover:bg-gray-200 px-4 py-2 rounded text-sm font-bold transition flex items-center justify-center gap-1 min-w-[140px]">
             <span id="updateIcon">🔄</span>
-     　     <span id="updateText">最新の状態に更新</span>
-　　　　　</button> 
+            <span id="updateText">最新の状態に更新</span>
+            </button> 
         </div>
         <div class="max-w-5xl mx-auto px-4 flex gap-8">
             <button onclick="switchTab('basic')" id="tabBtn-basic" class="py-3 font-bold transition tab-active">基本一覧</button>
@@ -177,6 +177,49 @@
 
     <script>
         const GAS_URL = "https://script.google.com/macros/s/AKfycbxwEuHjXVsUjbhH9Bo5yQ3vgln5LM615sKftO5pQgzjpPzpRvXuxMcqmyNTNhEhaQeZ/exec";
+        // ---- 2026/09/04 変更履歴 (初版 -> ver2) ----
+        // ・ADMIN_KEY を追加した。GAS側の getList / updateRecord がこのキーを要求する。
+        //   値はファイルに書かず、起動時に入力して sessionStorage に保持する(下記 getAdminKey)。
+        // ・取消完了の申請には「修正」ボタンを表示しないようにした。
+        //   (取消済みを修正するとカレンダーに予定が復活するため)
+        // ・氏名と理由を innerHTML に埋める箇所を esc() 経由にした。
+        // ・「修正」ボタンに渡す JSON でアポストロフィを %27 に置換した。
+        //   置換しないと氏名や理由に ` ' ` が入るとボタンが動かなくなる。
+        // -------------------------------------------
+        //
+        // 【重要】ADMIN_KEY はこのファイルに書かないこと。
+        //         このHTMLはGitHub Pagesで公開されており、URLを知っていれば誰でも中身を読める。
+        //         正解の値は Config シートの ADMIN_KEY にのみ置き、総務・開発担当には口頭等で伝える。
+        //         画面を開いたときに1回入力してもらい、タブを閉じるまで sessionStorage に保持する。
+        //         (sessionStorage はタブごと・閉じれば消える。localStorage は永続するので使わない)
+        function getAdminKey() {
+            let key = '';
+            try { key = sessionStorage.getItem('ADMIN_KEY') || ''; } catch (e) { key = ''; }
+            if (!key) {
+                key = (window.prompt('管理キーを入力してください。(総務担当者のみ)') || '').trim();
+                if (key) { try { sessionStorage.setItem('ADMIN_KEY', key); } catch (e) {} }
+            }
+            return key;
+        }
+        // キーを間違えたときに入れ直せるようにする
+        function clearAdminKey() {
+            try { sessionStorage.removeItem('ADMIN_KEY'); } catch (e) {}
+        }
+
+        // 【追加】HTMLとして解釈されると困る文字を、ただの文字に変換する。
+        //         innerHTML に値を埋める箇所では必ずこれを通すこと。
+        //         通さないと、理由欄の "<" 以降が表示されなくなったり、
+        //         <img src=x onerror="..."> のようなタグを書かれると
+        //         この画面を開いた人のブラウザでスクリプトが動いてしまう。
+        function esc(v) {
+            return String(v == null ? '' : v)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
         let allData = [];
         let colorMap = {};
 
@@ -213,10 +256,19 @@
             const res = await fetch(GAS_URL, {
                 method: "POST",
                 headers: { "Content-Type": "text/plain" },
-                body: JSON.stringify({ action: "getList", payload: { role: "admin" } })
+                body: JSON.stringify({ action: "getList", payload: { adminKey: getAdminKey() } })
             });
             const json = await res.json();
         
+           // 【追加】管理キーが違うとGAS側で拒否される。
+            //         保持しているキーを破棄し、理由を伝えて入れ直せるようにする。
+            if (json.status !== 'success') {
+                clearAdminKey();
+                alert((json.message || '一覧の取得に失敗しました。') +
+                      '\n管理キーが正しいか確認し、ページを再読み込みして入力し直してください。');
+                throw new Error(json.message || 'getList failed');
+            }
+
            if (json.status === 'success') {
                 allData = json.data;
                 colorMap = json.colors || {};
@@ -321,26 +373,35 @@
                             : `${i.startDate} ～ ${i.endDate}`;
                         
                         // オブジェクトを安全にHTMLの引数に渡すためのエンコード処理
-                        const itemJson = encodeURIComponent(JSON.stringify(i));
+                        // 【修正】encodeURIComponent は "'" を変換しない。
+                        //         氏名や理由に "'" が入ると onclick="openEditForm('...')" の
+                        //         引用符が閉じてしまい、そのカードの修正ボタンが動かなくなる。
+                        const itemJson = encodeURIComponent(JSON.stringify(i)).replace(/'/g, '%27');
+
+                        // 【追加】取消済みの申請を修正するとカレンダーに予定が復活してしまうため、
+                        //         修正できるステータスのときだけ「修正」ボタンを出す。
+                        //         (GAS側の updateRecord にも同じガードを入れてある)
+                        const st = (i.status || '').trim();
+                        const canEdit = (st === '申請中' || st === '仮申請' || st === '完了' || st === '承認済み');
 
                         return `
                             <div class="bg-white p-3 rounded border border-gray-200 text-sm shadow-sm hover:shadow transition relative group">
                                 <div class="flex justify-between items-start">
                                     <div>
-                                        <div class="font-bold text-gray-800">${i.userName}</div>
+                                        <div class="font-bold text-gray-800">${esc(i.userName)}</div>
                                         <div class="text-gray-500 text-[11px]">${dateDisplay} / ${i.category}</div>
                                         <div class="text-blue-600 font-bold mt-1 text-[12px]">
                                         🕒 ${i.startTime} ～ ${i.endTime}
                                         </div>
                                     </div>
-                                    <button onclick="openEditForm('${itemJson}')" class="bg-blue-50 text-blue-600 border border-blue-200 px-3 py-1 rounded text-xs font-bold hover:bg-blue-100 transition z-10 relative">
+                                    ${canEdit ? `<button onclick="openEditForm('${itemJson}')" class="bg-blue-50 text-blue-600 border border-blue-200 px-3 py-1 rounded text-xs font-bold hover:bg-blue-100 transition z-10 relative">
                                         修正
-                                    </button>
+                                    </button>` : ''}
                                 </div>
                                 
                                 <div class="hidden group-hover:block absolute z-50 bottom-full left-0 mb-2 w-full p-3 bg-gray-800 text-white text-xs rounded shadow-xl fade-in pointer-events-none">
                                    <span class="font-bold text-blue-300 border-b border-gray-600 pb-1 mb-1 block">理由</span>
-                                   <div class="whitespace-pre-wrap leading-relaxed">${i.reason || '（記載なし）'}</div>
+                                   <div class="whitespace-pre-wrap leading-relaxed">${i.reason ? esc(i.reason) : '（記載なし）'}</div>
                                 </div>
                             </div>
                         `;
@@ -430,7 +491,7 @@
 
                 return `
                     <div class="schedule-grid items-center h-12 border-b border-gray-50 hover:bg-gray-50 transition group relative">
-                        <div class="px-3 text-xs font-bold border-r border-gray-100 truncate text-gray-700">${i.userName}</div>
+                        <div class="px-3 text-xs font-bold border-r border-gray-100 truncate text-gray-700">${esc(i.userName)}</div>
                         <div class="bar-container bg-transparent">
                             <div class="absence-bar flex items-center justify-center text-[10px] text-white font-bold shadow-sm" 
                                  style="left: ${left}%; width: ${width}%; background-color: ${bgColor};"
@@ -442,7 +503,7 @@
                             <span class="text-blue-300 font-bold">期間:</span> ${dateDisplay}<br>
                             <span class="text-blue-300 font-bold mt-1 block">本日の時間:</span> ${dayStartStr} ～ ${dayEndStr}<br>
                             <span class="text-blue-300 font-bold mt-1 block">理由:</span>
-                            <div class="whitespace-pre-wrap">${i.reason || '（記載なし）'}</div>
+                            <div class="whitespace-pre-wrap">${i.reason ? esc(i.reason) : '（記載なし）'}</div>
                         </div>
                     </div>
                 `;
@@ -465,7 +526,7 @@
                 return `
                 <tr class="hover:bg-gray-50 transition">
                     <td class="px-6 py-4 text-xs text-gray-500">${dateDisplay}</td>
-                    <td class="px-6 py-4 font-bold text-sm text-gray-800">${i.userName}</td>
+                    <td class="px-6 py-4 font-bold text-sm text-gray-800">${esc(i.userName)}</td>
                     <td class="px-6 py-4 text-sm text-gray-600">${i.category} (${i.startTime}～)</td>
                     <td class="px-6 py-4 text-right">
                         <button onclick="proxyApprove('${i.uid}')" class="bg-blue-600 text-white text-xs px-4 py-2 rounded font-bold hover:bg-blue-700 shadow-sm transition">代行承認</button>
@@ -623,11 +684,16 @@ async function updateApplicationByAdmin() {
         }
 
 // GASへPOSTリクエストを送る共通関数
+// 【変更】総務画面からの操作であることを示す adminKey を必ず付与する。
+//         updateRecord(修正の保存) はこのキーがないとGAS側で拒否される。
 async function fetchGasPost(action, payload) {
     const res = await fetch(GAS_URL, {
         method: "POST",
         headers: { "Content-Type": "text/plain" },
-        body: JSON.stringify({ action: action, payload: payload })
+        body: JSON.stringify({
+            action: action,
+            payload: Object.assign({}, payload, { adminKey: getAdminKey() })
+        })
     });
     return res.json();
 }
@@ -652,4 +718,3 @@ function showLoading(isShowing, text) {
     </script>
 </body>
 </html>
- 
