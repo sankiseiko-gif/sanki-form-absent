@@ -10,6 +10,7 @@
         body { font-family: sans-serif; }
         .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .input-error { border-color: #ef4444 !important; background-color: #fef2f2 !important; }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800">
@@ -39,13 +40,13 @@
 
                 <div class="mb-4">
                     <label class="block text-sm font-bold mb-1 text-gray-700">来客名（社名など）</label>
-                    <input type="text" id="affiliation" class="w-full border border-gray-300 rounded-md p-2.5 bg-white outline-none" placeholder="株式会社〇〇">
+                    <input type="text" id="affiliation" maxlength="100" class="w-full border border-gray-300 rounded-md p-2.5 bg-white outline-none" placeholder="株式会社〇〇">
                 </div>
 
                 <div class="mb-4">
                     <label class="block text-sm font-bold mb-1 text-gray-700">入場人数（合計）</label>
                     <div class="flex items-center gap-2">
-                        <input type="number" id="peopleCount" class="w-1/3 border border-gray-300 rounded-md p-2.5 bg-white outline-none" value="1" min="1">
+                        <input type="number" id="peopleCount" class="w-1/3 border border-gray-300 rounded-md p-2.5 bg-white outline-none" value="1" min="1" max="999" step="1">
                         <span class="font-bold text-gray-600">名</span>
                     </div>
                 </div>
@@ -62,88 +63,169 @@
                 <div class="mb-5 border border-gray-200 p-4 rounded-md bg-gray-50">
                     <label class="block text-sm font-bold mb-2 text-gray-700">入場日</label>
                     <input type="date" id="entryDate" class="w-full border border-gray-300 rounded p-2 outline-none">
+                    <p class="text-xs text-gray-500 mt-1">※本日より前の日付は指定できません。</p>
                 </div>
 
                 <div class="mb-5">
                     <label class="block text-sm font-bold mb-1 text-gray-700">予定時間</label>
 
-                       <p id="timeInputNotice" class="text-xs text-gray-500 mb-2 hidden">
-                     ※Androidで入力できない場合は「8:30」「0830」「１２：３０」などでも入力できます。
-                     </p>
+                    <p id="timeInputNotice" class="text-xs text-gray-500 mb-2 hidden">
+                        ※Androidで入力できない場合は「8:30」「0830」「１２：３０」などでも入力できます。
+                    </p>
 
+                    <!-- min-w-0 がないと、Androidでtype="text"に切り替えたとき入力欄が縮まず画面からはみ出す -->
                     <div class="flex items-center gap-2">
-                        <input type="time" id="startTime" class="flex-1 border border-gray-300 rounded p-2 bg-white outline-none">
-                        <span class="text-gray-500 font-bold">～</span>
-                        <input type="time" id="endTime" class="flex-1 border border-gray-300 rounded p-2 bg-white outline-none">
+                        <input type="time" id="startTime" class="flex-1 min-w-0 border border-gray-300 rounded p-2 bg-white outline-none">
+                        <span class="text-gray-500 font-bold shrink-0">～</span>
+                        <input type="time" id="endTime" class="flex-1 min-w-0 border border-gray-300 rounded p-2 bg-white outline-none">
                     </div>
+                    <p id="timeError" class="text-xs text-red-500 mt-1 hidden"></p>
                 </div>
 
                 <div class="mb-6">
                     <label class="block text-sm font-bold mb-1 text-gray-700">入場目的</label>
-                    <textarea id="purpose" rows="3" class="w-full border border-gray-300 rounded-md p-2 bg-white outline-none" placeholder="例：設備メンテナンス、見学など"></textarea>
+                    <textarea id="purpose" rows="3" maxlength="500" class="w-full border border-gray-300 rounded-md p-2 bg-white outline-none" placeholder="例：設備メンテナンス、見学など"></textarea>
                 </div>
 
-                <button id="submitBtn" onclick="submitApplication()" class="w-full bg-blue-600 text-white font-bold py-3.5 rounded-lg shadow-md hover:bg-blue-700 transition">
+                <button id="submitBtn" onclick="submitApplication()" class="w-full bg-blue-600 text-white font-bold py-3.5 rounded-lg shadow-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition">
                     入場申請を送信する
                 </button>
             </div>
         </section>
 
-       <section id="tab-history" class="hidden">
-            <div class="flex justify-between items-center mb-3 ml-1">
-                <h3 class="font-bold text-gray-700">入場申請履歴</h3>
-                <select id="sortOrder" onchange="applySortAndRender()" class="text-sm border border-gray-300 rounded p-1 bg-white outline-none">
-                    <option value="applyDesc">申請が新しい順</option>
-                    <option value="entryAsc">入場日が近い順</option>
-                    <option value="entryDesc">入場日が遠い順</option>
-                </select>
+        <section id="tab-history" class="hidden">
+            <div class="flex justify-between items-center mb-3 ml-1 gap-2">
+                <h3 class="font-bold text-gray-700 whitespace-nowrap">入場申請履歴</h3>
+                <div class="flex items-center gap-2">
+                    <select id="sortOrder" onchange="applySortAndRender()" class="text-sm border border-gray-300 rounded p-1 bg-white outline-none">
+                        <option value="applyDesc">申請が新しい順</option>
+                        <option value="entryAsc">入場日が近い順</option>
+                        <option value="entryDesc">入場日が遠い順</option>
+                    </select>
+                    <button onclick="fetchListData()" class="text-sm border border-gray-300 rounded px-2 py-1 bg-white hover:bg-gray-50">再読込</button>
+                </div>
             </div>
             <div id="historyList" class="space-y-3"></div>
         </section>
     </main>
 
     <script>
-        const GAS_URL = "https://script.google.com/macros/s/AKfycbyKgHIo5Gb_2PMIaOSBs5BLzeu9Lsz5KW8eiTZnYDhZolIebOz7x3kzE98Y6SIEIiMt/exec"; 
+        const GAS_URL = "https://script.google.com/macros/s/AKfycbyKgHIo5Gb_2PMIaOSBs5BLzeu9Lsz5KW8eiTZnYDhZolIebOz7x3kzE98Y6SIEIiMt/exec";
         const WOFF_ID = "nR8R-Z199Y6TPvMn6beGyA";
+
         let currentUser = { id: "", name: "" };
         let isFallbackMode = false;
         let historyData = [];
-        
-        window.onload = () => {
+        let isSubmitting = false;
 
-            // Android Chromeの時刻入力対策
+        // ---------- 共通ユーティリティ ----------
+
+        // innerHTML に値を差し込む前に必ず通す。
+        // 社名の「&」や目的の「<」で表示が壊れるのを防ぐため。
+        function esc(value) {
+            return String(value == null ? '' : value).replace(/[&<>"']/g, function (c) {
+                return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+            });
+        }
+
+        function todayStr() {
+            const d = new Date();
+            const p = (n) => String(n).padStart(2, '0');
+            return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+        }
+
+        // 時刻の表記ゆれを HH:mm に揃える。変換できない場合は空文字を返す。
+        function normalizeTime(str) {
+            if (!str) return "";
+            str = String(str).trim();
+            str = str.replace(/[０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)); // 全角数字→半角
+            str = str.replace(/[：:]/g, ":");
+
+            if (/^\d{4}$/.test(str))      str = str.slice(0, 2) + ":" + str.slice(2); // 0830
+            else if (/^\d{3}$/.test(str)) str = "0" + str[0] + ":" + str.slice(1);    // 830
+            else if (/^\d:\d{2}$/.test(str)) str = "0" + str;                          // 8:30
+
+            return /^([01]\d|2[0-3]):([0-5]\d)$/.test(str) ? str : "";
+        }
+
+        function setTimeError(message) {
+            const el = document.getElementById('timeError');
+            if (message) {
+                el.textContent = message;
+                el.classList.remove('hidden');
+            } else {
+                el.textContent = '';
+                el.classList.add('hidden');
+            }
+        }
+
+        function showLoading(show, text = "通信中...") {
+            document.getElementById('loadingText').textContent = text;
+            document.getElementById('loading').style.display = show ? 'flex' : 'none';
+        }
+
+        async function fetchGasPost(action, payload) {
+            const res = await fetch(GAS_URL, {
+                method: "POST",
+                headers: { "Content-Type": "text/plain" },
+                body: JSON.stringify({ action: action, payload: payload })
+            });
+            if (!res.ok) throw new Error(`通信エラー (${res.status})`);
+            return res.json();
+        }
+
+        // ---------- 初期化 ----------
+
+        window.onload = () => {
+            // 入場日は本日以降のみ
+            document.getElementById('entryDate').min = todayStr();
+
+            // Android Chrome は type="time" がうまく動かない端末があるため text に切り替える
             if (/Android/i.test(navigator.userAgent)) {
+                document.getElementById('timeInputNotice').classList.remove('hidden');
                 ["startTime", "endTime"].forEach(id => {
-                const el = document.getElementById(id);
+                    const el = document.getElementById(id);
                     el.type = "text";
                     el.placeholder = "08:30";
                     el.inputMode = "numeric";
                     el.maxLength = 6;
+                    el.size = 5; // 既定の size=20 のままだと横幅が広がりすぎる
 
-                    // 入力終了時に整形
                     el.addEventListener("blur", () => {
-                    el.value = normalizeTime(el.value);
+                        const raw = el.value.trim();
+                        if (!raw) { el.classList.remove('input-error'); setTimeError(''); return; }
+                        const normalized = normalizeTime(raw);
+                        if (normalized) {
+                            // 変換できたときだけ書き換える。失敗時に入力を消さないようにする。
+                            el.value = normalized;
+                            el.classList.remove('input-error');
+                            setTimeError('');
+                        } else {
+                            el.classList.add('input-error');
+                            setTimeError('時刻の形式が正しくありません。「08:30」「0830」のように入力してください。');
+                        }
                     });
                 });
             }
 
-
             if (typeof woff !== 'undefined' && woff.init) {
                 woff.init({ woffId: WOFF_ID })
-                .then(() => woff.getProfile())
-                .then(profile => {
-                    currentUser.id = profile.userId;
-                    initApp('apply');
-                })
-                .catch(() => activateFallbackMode('apply'));
+                    .then(() => woff.getProfile())
+                    .then(profile => {
+                        currentUser.id = profile.userId;
+                        initApp('apply');
+                    })
+                    .catch(() => activateFallbackMode('apply'));
             } else {
                 activateFallbackMode('apply');
             }
-        }
-        
+        };
+
+        // PCブラウザ版など userId を取得できない環境向けのフォールバック
         function activateFallbackMode(targetTab) {
             isFallbackMode = true;
             const un = document.getElementById('userName');
+            un.value = "";
             un.placeholder = "氏名を漢字で入力";
             un.removeAttribute('readonly');
             un.classList.remove('bg-transparent', 'font-bold');
@@ -157,75 +239,50 @@
             showLoading(true, "ユーザー情報を取得中...");
             try {
                 const json = await fetchGasPost('getUser', { userId: currentUser.id });
-                if (json.status === 'success' && json.data.userName) {
+                if (json.status === 'success' && json.data && json.data.userName) {
                     currentUser.name = json.data.userName;
                     document.getElementById('userName').value = currentUser.name;
-                } else { throw new Error(); }
-                switchTab(targetTab);
-            } catch (e) { activateFallbackMode(targetTab); }
-            finally { showLoading(false); }
+                    switchTab(targetTab);
+                } else {
+                    throw new Error('マスタ未登録');
+                }
+            } catch (e) {
+                activateFallbackMode(targetTab);
+            } finally {
+                showLoading(false);
+            }
         }
 
         async function authenticateByName() {
             const nameInput = document.getElementById('userName').value.trim();
             if (!nameInput) return alert("氏名を入力してください。");
+
             showLoading(true, "マスタと連携中...");
             try {
                 const json = await fetchGasPost('getUserByName', { userName: nameInput });
                 if (json.status === 'success' && json.data) {
                     currentUser.id = json.data.userId;
                     currentUser.name = json.data.userName;
+
                     const un = document.getElementById('userName');
+                    un.value = currentUser.name;
                     un.setAttribute('readonly', 'true');
-                    un.classList.remove('border', 'border-gray-300', 'bg-white');
+                    un.classList.remove('border', 'border-gray-300', 'bg-white', 'p-2', 'rounded-md');
                     un.classList.add('bg-transparent', 'font-bold');
                     document.getElementById('authByNameBtn').classList.add('hidden');
                     document.getElementById('fallbackMessage').classList.add('hidden');
+
                     alert(`「${currentUser.name}」さんとして連携しました。`);
                     switchTab('apply');
-                } else { alert("マスタに該当する名前が見つかりません。"); }
-            } catch (e) { alert("通信エラーが発生しました。"); }
-            finally { showLoading(false); }
-        }
-
-        //android用時刻入力補正
-        function normalizeTime(str) {
-
-            if (!str) return "";
-
-             // 前後の空白削除
-                str = str.trim();
-
-             // 全角数字→半角
-                str = str.replace(/[０-９]/g, s =>
-                String.fromCharCode(s.charCodeAt(0) - 0xFEE0)
-                 );
-
-             // 全角コロン→半角
-                str = str.replace(/：/g, ":");
-
-             // コロンなし
-                if (/^\d{4}$/.test(str)) {
-                 str = str.slice(0,2) + ":" + str.slice(2);
-                 }
-
-             // 3桁 (830 → 08:30)
-                else if (/^\d{3}$/.test(str)) {
-                str = "0" + str[0] + ":" + str.slice(1);
-                 }
-
-             // 8:30 → 08:30
-                 else if (/^\d:\d{2}$/.test(str)) {
-                 str = "0" + str;
-                  }
-
-             // 最終チェック
-                 if (!/^([01]\d|2[0-3]):([0-5]\d)$/.test(str)) {
-                 return "";
+                } else {
+                    alert("マスタに該当する名前が見つかりません。");
                 }
-            return str;
+            } catch (e) {
+                alert("通信エラーが発生しました。");
+            } finally {
+                showLoading(false);
+            }
         }
-
 
         function switchTab(tabId) {
             ['apply', 'history'].forEach(id => {
@@ -241,56 +298,62 @@
                     btn?.classList.add('text-gray-400', 'border-transparent');
                 }
             });
+
             if (tabId === 'history') {
-                if (isFallbackMode && !currentUser.id) {
+                if (!currentUser.id) {
                     alert("まずは氏名を連携してください。");
                     switchTab('apply');
-                } else { fetchListData(); }
+                } else {
+                    fetchListData();
+                }
             }
         }
 
-        function showLoading(show, text = "通信中...") {
-            document.getElementById('loadingText').textContent = text;
-            document.getElementById('loading').style.display = show ? 'flex' : 'none';
-        }
-
-        async function fetchGasPost(action, payload) {
-            const res = await fetch(GAS_URL, {
-                method: "POST",
-                headers: { "Content-Type": "text/plain" },
-                body: JSON.stringify({ action: action, payload: payload })
-            });
-            return res.json();
-        }
+        // ---------- 申請 ----------
 
         async function submitApplication() {
-            if (isFallbackMode && !currentUser.id) {
+            if (isSubmitting) return;
+
+            if (!currentUser.id || !currentUser.name) {
                 alert("申請を行う前に、氏名の連携を行ってください。");
                 return;
             }
 
-            const affiliation = document.getElementById('affiliation').value;
-            const peopleCount = document.getElementById('peopleCount').value;
+            const affiliation = document.getElementById('affiliation').value.trim();
+            const peopleRaw   = document.getElementById('peopleCount').value.trim();
             const factoryType = document.getElementById('factoryType').value;
-            const entryDate = document.getElementById('entryDate').value;
+            const entryDate   = document.getElementById('entryDate').value;
+            const purpose     = document.getElementById('purpose').value.trim();
+
             const startTime = normalizeTime(document.getElementById('startTime').value);
-            const endTime = normalizeTime(document.getElementById('endTime').value);
-            const purpose = document.getElementById('purpose').value;
+            const endTime   = normalizeTime(document.getElementById('endTime').value);
+            if (startTime) document.getElementById('startTime').value = startTime;
+            if (endTime)   document.getElementById('endTime').value = endTime;
 
-            document.getElementById('startTime').value = startTime;
-            document.getElementById('endTime').value = endTime;
+            if (!affiliation) return alert("来客名を入力してください。");
+            if (!entryDate)   return alert("入場日を指定してください。");
+            if (!purpose)     return alert("入場目的を入力してください。");
 
-
-            if (!affiliation || !entryDate || !startTime || !endTime || !purpose) {
-                return alert("未入力の項目があります。");
+            const peopleCount = Number(peopleRaw);
+            if (!peopleRaw || !Number.isInteger(peopleCount) || peopleCount < 1 || peopleCount > 999) {
+                return alert("入場人数は1〜999の整数で入力してください。");
             }
 
+            if (entryDate < todayStr()) {
+                return alert("本日より前の日付では申請できません。");
+            }
+
+            if (!startTime || !endTime) {
+                setTimeError('時刻の形式が正しくありません。「08:30」「0830」のように入力してください。');
+                return alert("予定時間を正しく入力してください。（例 08:30）");
+            }
             if (startTime >= endTime) {
                 return alert("終了時間は開始時間より後の時間を指定してください。");
             }
+            setTimeError('');
 
             const data = {
-                userId: currentUser.id, 
+                userId: currentUser.id,
                 userName: currentUser.name,
                 affiliation: affiliation,
                 peopleCount: peopleCount,
@@ -301,100 +364,135 @@
                 purpose: purpose
             };
 
+            isSubmitting = true;
+            document.getElementById('submitBtn').disabled = true;
             showLoading(true, "送信中...");
             try {
                 const json = await fetchGasPost('submit', data);
-                if (json.status === 'success') { 
-                    alert("入場申請が完了しました。判断をお待ちください。");
-                    if(typeof woff !== 'undefined' && woff.isLoggedIn && woff.isLoggedIn()) { 
-                        woff.closeWindow(); 
-                    } else { location.reload(); }
-                } else throw new Error(json.message);
-            } catch (e) { 
-                alert("送信失敗: " + e.message); 
-            } finally { 
-                showLoading(false); 
+                if (json.status !== 'success') throw new Error(json.message);
+
+                alert(json.warning
+                    ? `入場申請が完了しました。\n\n${json.warning}`
+                    : "入場申請が完了しました。判断をお待ちください。");
+
+                if (typeof woff !== 'undefined' && woff.isLoggedIn && woff.isLoggedIn()) {
+                    woff.closeWindow();
+                } else {
+                    location.reload();
+                }
+            } catch (e) {
+                alert("送信失敗: " + e.message);
+            } finally {
+                isSubmitting = false;
+                document.getElementById('submitBtn').disabled = false;
+                showLoading(false);
             }
         }
+
+        // ---------- 履歴・取消 ----------
 
         async function fetchListData() {
+            if (!currentUser.id) return;
+
             showLoading(true, "履歴を取得中...");
             try {
-                // バックエンドの getRequestList を呼び出し
-                const json = await fetchGasPost('getList', { userId: currentUser.id });
-                if (json.status === 'success') {
-                    // 自分のデータだけを抽出してグローバル変数に保存
-                    historyData = json.data.filter(item => item.applicantId === currentUser.id);
-                    // ソートと表示を実行
-                    applySortAndRender()
-                }
-            } catch (e) { alert("履歴の取得に失敗しました。"); }
-            finally { showLoading(false); }
+                // 絞り込みはGAS側で行うため、自分の申請だけが返ってくる
+                const json = await fetchGasPost('getMyList', { userId: currentUser.id });
+                if (json.status !== 'success') throw new Error(json.message);
+                historyData = json.data || [];
+                applySortAndRender();
+            } catch (e) {
+                document.getElementById('historyList').innerHTML =
+                    '<div class="bg-white p-4 text-center text-sm text-red-500">履歴の取得に失敗しました。<br>「再読込」を押してください。</div>';
+            } finally {
+                showLoading(false);
+            }
         }
 
-// ★新規追加: ソートを実行して画面を描画する関数
         function applySortAndRender() {
             const sortOrder = document.getElementById('sortOrder').value;
-            let sortedList = [...historyData]; // 元データを崩さないようにコピーを作成
+            const sorted = [...historyData];
+
+            // iOS Safari は "2026-09-15 08:30" を解釈できないため 'T' 区切りにする
+            const entryMs = (item) => new Date(`${item.entryDate}T${item.startTime || '00:00'}:00`).getTime();
 
             if (sortOrder === 'applyDesc') {
-                // 申請が新しい順（スプレッドシートの下から上へ）
-                sortedList.reverse(); 
+                sorted.sort((a, b) => String(b.appliedAt || '').localeCompare(String(a.appliedAt || '')));
             } else if (sortOrder === 'entryAsc') {
-                // 入場日が近い順（日付が古い順）
-                sortedList.sort((a, b) => {
-                    // 日付と時間を結合して比較可能な数値（ミリ秒）にする
-                    const dateA = new Date(`${a.entryDate} ${a.startTime}`).getTime();
-                    const dateB = new Date(`${b.entryDate} ${b.startTime}`).getTime();
-                    return dateA - dateB;
-                });
+                sorted.sort((a, b) => entryMs(a) - entryMs(b));
             } else if (sortOrder === 'entryDesc') {
-                // 入場日が遠い順（日付が未来順）
-                sortedList.sort((a, b) => {
-                    const dateA = new Date(`${a.entryDate} ${a.startTime}`).getTime();
-                    const dateB = new Date(`${b.entryDate} ${b.startTime}`).getTime();
-                    return dateB - dateA; // entryAscの逆
-                });
+                sorted.sort((a, b) => entryMs(b) - entryMs(a));
             }
 
-            renderHistory(sortedList);
+            renderHistory(sorted);
         }
-        
+
+        function statusStyle(status) {
+            switch (status) {
+                case '許可':     return { border: 'border-green-500',  badge: 'bg-green-100 text-green-700' };
+                case '却下':     return { border: 'border-red-400',    badge: 'bg-red-100 text-red-700' };
+                case '取消完了': return { border: 'border-gray-400',   badge: 'bg-gray-200 text-gray-600' };
+                case '期限切れ': return { border: 'border-gray-400',   badge: 'bg-gray-200 text-gray-600' };
+                default:         return { border: 'border-yellow-400', badge: 'bg-yellow-100 text-yellow-700' };
+            }
+        }
+
         function renderHistory(list) {
             const container = document.getElementById('historyList');
-            if (!list || list.length === 0) return container.innerHTML = '<div class="bg-white p-4 text-center text-sm text-gray-500">履歴はありません</div>';
-            
+            if (!list || list.length === 0) {
+                container.innerHTML = '<div class="bg-white p-4 text-center text-sm text-gray-500">履歴はありません</div>';
+                return;
+            }
+
             container.innerHTML = list.map(item => {
-                const statusColor = item.status === '許可' ? 'border-green-500' : (item.status === '却下' || item.status === '取消完了' ? 'border-red-400' : 'border-yellow-400');
+                const style = statusStyle(item.status);
+
+                // 却下理由・許可コメントは通知だけでなく履歴でも確認できるようにする
+                const commentBlock = item.comment
+                    ? `<div class="text-sm bg-gray-50 border border-gray-200 rounded p-2 mb-3">
+                           <span class="font-bold text-gray-500 text-xs block mb-1">${item.status === '却下' ? '却下理由' : 'コメント'}</span>
+                           <span class="text-gray-700 whitespace-pre-wrap">${esc(item.comment)}</span>
+                       </div>`
+                    : '';
+
+                const cancelButton = item.cancelable
+                    ? `<button class="w-full text-red-500 bg-red-50 border border-red-200 hover:bg-red-100 font-bold rounded-md py-2 transition text-sm" onclick="cancelRequest('${esc(item.uid)}')">申請を取り消す</button>`
+                    : '';
+
                 return `
-                    <div class="bg-white p-4 rounded-lg shadow-sm border border-l-4 ${statusColor}">
-                        <div class="flex justify-between items-center mb-2">
-                            <span class="font-bold text-gray-800">${item.affiliation}（${item.peopleCount}名）</span>
-                            <span class="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full font-bold">${item.status}</span>
+                    <div class="bg-white p-4 rounded-lg shadow-sm border border-l-4 ${style.border}">
+                        <div class="flex justify-between items-center mb-2 gap-2">
+                            <span class="font-bold text-gray-800">${esc(item.affiliation)}（${esc(item.peopleCount)}名）</span>
+                            <span class="text-xs ${style.badge} px-2 py-1 rounded-full font-bold whitespace-nowrap">${esc(item.status)}</span>
                         </div>
                         <div class="text-sm text-gray-600 space-y-1 mb-3">
-                            <p>入場日: ${item.entryDate}</p>
-                            <p>場所: ${item.factoryType || '未指定'}</p>
-                            <p>時間: ${item.startTime} ～ ${item.endTime}</p>
+                            <p>入場日: ${esc(item.entryDate)}</p>
+                            <p>時間: ${esc(item.startTime)} ～ ${esc(item.endTime)}</p>
+                            <p>場所: ${esc(item.factoryType || '未指定')}</p>
+                            <p>目的: ${esc(item.purpose)}</p>
                         </div>
-                        ${(item.status === '判断待ち' || item.status === '許可') ? 
-                            `<button class="w-full text-red-500 bg-red-50 border border-red-200 hover:bg-red-100 font-bold rounded-md py-2 transition text-sm" onclick="cancelRequest('${item.uid}')">申請を取り消す</button>` : 
-                            ''
-                        }
+                        ${commentBlock}
+                        ${cancelButton}
                     </div>
                 `;
             }).join('');
         }
-        
+
         async function cancelRequest(uid) {
-            if(!confirm("この入場申請を取り消しますか？")) return;
+            if (!confirm("この入場申請を取り消しますか？")) return;
+
             showLoading(true, "取消処理中...");
             try {
-                const json = await fetchGasPost('cancel', { uid: uid });
-                if (json.status === 'success') { alert("取り消しました。"); fetchListData(); }
-                else throw new Error(json.message);
-            } catch (e) { alert("エラー: " + e.message); }
-            finally { showLoading(false); }
+                // 本人確認のため userId も送る
+                const json = await fetchGasPost('cancel', { uid: uid, userId: currentUser.id });
+                if (json.status !== 'success') throw new Error(json.message);
+                alert("取り消しました。");
+                await fetchListData();
+            } catch (e) {
+                alert("エラー: " + e.message);
+            } finally {
+                showLoading(false);
+            }
         }
     </script>
 </body>
