@@ -1,1135 +1,507 @@
-// ==========================================
-// 工場入場許可申請システム  GAS ver2
-// ------------------------------------------
-// ver1 からの主な変更:
-//   - 承認者を Master.managerId ではなく Config.PRESIDENT_ID で決定（カンマ区切りで複数可）
-//   - 判断者名・判断日時・取消日時を記録（P/Q/R列を追加）
-//   - 取消に本人確認・ステータス確認・過去日チェックを追加
-//   - getList を getMyList / getPendingList に分割し、サーバ側で絞り込む
-//   - 見学場所(factoryType)を全通知とカレンダー予定名に反映
-//   - 入力検証をサーバ側にも実装
-//   - アクセストークンを CacheService でキャッシュ
-//   - 前日リマインドと期限切れ自動処理（dailyMaintenance）を追加
-// ==========================================
-
-
-// ==========================================
-// 0. 定数定義
-// ==========================================
-const SHEET_NAME_RECORD = 'Records';
-const SHEET_NAME_MASTER = 'Master';
-const SHEET_NAME_CONFIG = 'Config';
-const SHEET_NAME_LOG    = 'Log';
-
-// ステータス（文字列の直書きを避けるため定数化）
-const STATUS = {
-  PENDING:  '判断待ち',
-  APPROVED: '許可',
-  REJECTED: '却下',
-  CANCELED: '取消完了',
-  EXPIRED:  '期限切れ'
-};
-
-// Records シートの列番号（1起点）。シートの列順を変えたらここも直すこと。
-const COL = {
-  UID:          1,  // A: 申請ID
-  USER_ID:      2,  // B: 申請者のLINE WORKS ID
-  USER_NAME:    3,  // C: 申請者氏名
-  ENTRY_DATE:   4,  // D: 入場日
-  START_TIME:   5,  // E: 開始時刻
-  END_TIME:     6,  // F: 終了時刻
-  AFFILIATION:  7,  // G: 来客名（社名など）
-  PEOPLE_COUNT: 8,  // H: 入場人数
-  PURPOSE:      9,  // I: 入場目的
-  STATUS:      10,  // J: ステータス
-  EVENT_IDS:   11,  // K: カレンダーのイベントID（カンマ区切り）
-  PRESIDENT_ID:12,  // L: 申請時点の承認依頼の宛先
-  APPLIED_AT:  13,  // M: 申請日時
-  COMMENT:     14,  // N: 承認者コメント（却下理由）
-  FACTORY_TYPE:15,  // O: 見学場所
-  JUDGE_NAME:  16,  // P: 判断者名        ← ver2で追加
-  JUDGED_AT:   17,  // Q: 判断日時        ← ver2で追加
-  CANCELED_AT: 18   // R: 取消日時        ← ver2で追加
-};
-const LAST_COL = COL.CANCELED_AT;
-
-// 見学場所の選択肢（申請画面の <select> と一致させること）
-const FACTORY_TYPES = ['本社工場のみ', '第二工場のみ', '両方'];
-
-// 入力の上限（異常なデータでシートや通知が壊れるのを防ぐため）
-const LIMIT = {
-  AFFILIATION: 100,
-  PURPOSE:     500,
-  COMMENT:     500,
-  USER_NAME:   50,
-  PEOPLE_MAX:  999
-};
-
-// 通知メッセージに載せる目的の最大文字数（LINE WORKSの本文上限対策）
-const PURPOSE_IN_MESSAGE = 150;
-
-const TZ = 'Asia/Tokyo';
-const TOKEN_CACHE_KEY = 'LW_ACCESS_TOKEN';
-const TOKEN_CACHE_SEC = 3000; // 50分（トークン有効期限3600秒より短くする）
-
-
-// ==========================================
-// 1. トークン取得（CacheService対応）
-// ==========================================
-let cachedToken = null; // 同一実行内での使い回し
-
-function getAccessToken() {
-  if (cachedToken) return cachedToken;
-
-  // 実行をまたいだキャッシュ。トークン取得APIの呼び出し回数を減らす。
-  const cache = CacheService.getScriptCache();
-  const hit = cache.get(TOKEN_CACHE_KEY);
-  if (hit) {
-    cachedToken = hit;
-    return cachedToken;
-  }
-
-  const props = PropertiesService.getScriptProperties().getProperties();
-  const clientId      = props.CLIENT_ID;
-  const clientSecret  = props.CLIENT_SECRET;
-  const serviceAccount= props.SERVICE_ACCOUNT;
-  let   privateKey    = props.PRIVATE_KEY;
-
-  // スクリプトプロパティに貼るとき改行が潰れることがあるので復元する
-  if (privateKey && !privateKey.includes('\n')) {
-    const body = privateKey
-      .replace('-----BEGIN PRIVATE KEY-----', '')
-      .replace('-----END PRIVATE KEY-----', '')
-      .replace(/\s/g, '');
-    const reformatting = body.match(/.{1,64}/g).join('\n');
-    privateKey = `-----BEGIN PRIVATE KEY-----\n${reformatting}\n-----END PRIVATE KEY-----`;
-  }
-
-  if (!clientId || !privateKey || !serviceAccount) {
-    throw new Error('必要なスクリプトプロパティ（CLIENT_ID, PRIVATE_KEY, SERVICE_ACCOUNT）が足りません。');
-  }
-
-  const header = JSON.stringify({ alg: 'RS256', typ: 'JWT' });
-  const now = Math.floor(Date.now() / 1000);
-  const payload = JSON.stringify({
-    iss: clientId,
-    sub: serviceAccount,
-    iat: now,
-    exp: now + 3600
-  });
-
-  const encode = (str) => Utilities.base64EncodeWebSafe(str).replace(/=+$/, '');
-  const unsignedToken = encode(header) + '.' + encode(payload);
-  const signature = Utilities.computeRsaSha256Signature(unsignedToken, privateKey);
-  const jwt = unsignedToken + '.' + encode(signature);
-
-  const response = UrlFetchApp.fetch('https://auth.worksmobile.com/oauth2/v2.0/token', {
-    method: 'post',
-    payload: {
-      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-      assertion: jwt,
-      client_id: clientId,
-      client_secret: clientSecret,
-      scope: 'bot,calendar,user.read'
-    },
-    muteHttpExceptions: true
-  });
-
-  const resJson = JSON.parse(response.getContentText());
-  if (!resJson.access_token) {
-    throw new Error('LINE WORKSからの応答エラー: ' + response.getContentText());
-  }
-
-  cachedToken = resJson.access_token;
-  cache.put(TOKEN_CACHE_KEY, cachedToken, TOKEN_CACHE_SEC);
-  return cachedToken;
-}
-
-function clearTokenCache() {
-  cachedToken = null;
-  try { CacheService.getScriptCache().remove(TOKEN_CACHE_KEY); } catch (e) {}
-}
-// 1.ここまで---------------------------------
-
-
-// ==========================================
-// 2. シート・設定の取得
-// ==========================================
-let CONFIG_CACHE = null;
-
-function getTargetSpreadsheet() {
-  return SpreadsheetApp.getActiveSpreadsheet();
-}
-
-function getRecordSheet() {
-  const sheet = getTargetSpreadsheet().getSheetByName(SHEET_NAME_RECORD);
-  if (!sheet) throw new Error(`${SHEET_NAME_RECORD}シートが見つかりません。`);
-  return sheet;
-}
-
-function getConfig() {
-  if (CONFIG_CACHE) return CONFIG_CACHE;
-  const sheet = getTargetSpreadsheet().getSheetByName(SHEET_NAME_CONFIG);
-  if (!sheet) throw new Error('Configシートが見つかりません。');
-
-  const values = sheet.getDataRange().getValues();
-  CONFIG_CACHE = {};
-  for (let i = 0; i < values.length; i++) {
-    const key = String(values[i][0] || '').trim();
-    if (key) CONFIG_CACHE[key] = String(values[i][1] == null ? '' : values[i][1]).trim();
-  }
-  return CONFIG_CACHE;
-}
-
-/**
- * 承認者のIDを配列で返す。
- * Config の PRESIDENT_ID にカンマ区切りで複数書ける（現在は社長1名のみ設定）。
- */
-function getPresidentIds(config) {
-  return String(config.PRESIDENT_ID || '')
-    .split(',')
-    .map(s => s.trim())
-    .filter(s => s);
-}
-
-// 合言葉が違うときのメッセージ。画面側がこの文字列で判定して保存済みの合言葉を消すため、変更しない。
-const ERR_BAD_ADMIN_KEY = '合言葉が違います。';
-
-/**
- * 判断ページ（一覧閲覧・許可・却下）の操作権限を確認する。権限がなければ例外を投げる。
- *
- * - WOFF経由で userId が取れている場合（スマホのLINE WORKS）
- *     → PRESIDENT_ID と照合する。合言葉は不要なので社長の手間は増えない。
- * - userId が取れない場合（PCブラウザ / PC版LINE WORKS / GitHub PagesのURLを直接開いた場合）
- *     → Config の ADMIN_KEY（合言葉）と照合する。
- *
- * ADMIN_KEY が未設定のときはPCからの操作を一切許可しない。
- * 設定漏れで「合言葉なしで誰でも通る」状態に戻らないようにするため。
- */
-function assertJudgeAuthority(config, execUserId, adminKey) {
-  const uid = String(execUserId || '').trim();
-
-  if (uid) {
-    const presidentIds = getPresidentIds(config);
-    if (presidentIds.length > 0 && presidentIds.indexOf(uid) === -1) {
-      throw new Error('この画面を利用できるのは承認者のみです。');
-    }
-    return;
-  }
-
-  const expected = String(config.ADMIN_KEY || '').trim();
-  if (!expected) {
-    throw new Error('PCからの利用には合言葉の設定が必要です。Configシートに ADMIN_KEY を設定してください。');
-  }
-  if (String(adminKey || '').trim() !== expected) {
-    throw new Error(ERR_BAD_ADMIN_KEY);
-  }
-}
-// 2.ここまで---------------------------------
-
-
-// ==========================================
-// 3. エンドポイント（WOFFからの入り口）
-// ==========================================
-function doPost(e) {
-  try {
-    if (!e || !e.postData) return createJsonResponse({ status: 'error', message: 'No data' });
-
-    const postData = JSON.parse(e.postData.contents);
-    const action   = postData.action;
-    const payload  = postData.payload || {};
-
-    switch (action) {
-      case 'submit':
-        return handleSubmission(payload);
-      case 'judge':
-        return handleJudgment(payload);
-      case 'cancel':
-        return handleCancellation(payload);
-      case 'getUser':
-        return createJsonResponse({ status: 'success', data: getUserInfo(payload.userId) });
-      case 'getUserByName':
-        return createJsonResponse(getUserInfoByName(payload.userName));
-      case 'getMyList':
-        return createJsonResponse({ status: 'success', data: getMyList(payload.userId) });
-      case 'getPendingList': {
-        // 一覧には来客社名・目的・申請者名が含まれるため、判断と同じ権限を要求する
-        assertJudgeAuthority(getConfig(), payload.execUserId, payload.adminKey);
-        return createJsonResponse({ status: 'success', data: getPendingList() });
-      }
-      case 'ping':
-        return createJsonResponse({ status: 'success', data: getDiagnostics() });
-      default:
-        return createJsonResponse({ status: 'error', message: 'Unknown action' });
-    }
-  } catch (error) {
-    writeErrorLog('doPost', error);
-    return createJsonResponse({ status: 'error', message: error.message || String(error) });
-  }
-}
-
-function createJsonResponse(data) {
-  return ContentService.createTextOutput(JSON.stringify(data)).setMimeType(ContentService.MimeType.JSON);
-}
-
-/**
- * 配置の状態を確認するための診断用。IDやトークンなどの値そのものは返さない。
- * 「どのコードが動いているか」「シートと設定が揃っているか」を切り分けるために使う。
- */
-function getDiagnostics() {
-  const result = { version: 'ver2', checkedAt: nowString() };
-
-  try {
-    const sheet = getRecordSheet();
-    const header = sheet.getDataRange().getValues()[0] || [];
-    result.recordMaxColumns = sheet.getMaxColumns();
-    result.recordHeaderCount = header.length;
-    result.hasJudgeColumns = sheet.getMaxColumns() >= LAST_COL;
-    result.lastHeader = String(header[LAST_COL - 1] || '(なし)');
-    result.rowCount = Math.max(0, sheet.getDataRange().getValues().length - 1);
-  } catch (e) {
-    result.recordError = e.message;
-  }
-
-  try {
-    const config = getConfig();
-    const required = ['PRESIDENT_ID', 'APPROVE_WOFF_URL', 'SOUMU_CHANNEL_ID', 'BOT_ID', 'SHARED_USER_ID', 'SHARED_CALENDAR_ID'];
-    result.missingConfig = required.filter(k => !config[k]);
-    result.presidentCount = getPresidentIds(config).length;
-    // 合言葉そのものは返さない。設定されているかどうかだけ。
-    result.adminKeySet = !!String(config.ADMIN_KEY || '').trim();
-  } catch (e) {
-    result.configError = e.message;
-  }
-
-  try {
-    result.pendingCount = getPendingList().length;
-  } catch (e) {
-    result.pendingError = e.message;
-  }
-
-  try {
-    const logSheet = getTargetSpreadsheet().getSheetByName(SHEET_NAME_LOG);
-    result.logSheetExists = !!logSheet;
-    result.logRowCount = logSheet ? Math.max(0, logSheet.getDataRange().getValues().length - 1) : 0;
-  } catch (e) {
-    result.logError = e.message;
-  }
-
-  return result;
-}
-// 3.ここまで---------------------------------
-
-
-// ==========================================
-// 4. 入力検証
-// ==========================================
-/**
- * 申請内容を検証し、正規化したオブジェクトを返す。問題があれば例外を投げる。
- * 画面側でも同じ検証をしているが、GASのURLは直接叩けるためサーバ側にも置く。
- */
-function validateSubmission(data) {
-  const trimmed = (v, max) => String(v == null ? '' : v).trim().slice(0, max);
-
-  const userId     = trimmed(data.userId, 100);
-  const userName   = trimmed(data.userName, LIMIT.USER_NAME);
-  const affiliation= trimmed(data.affiliation, LIMIT.AFFILIATION);
-  const purpose    = trimmed(data.purpose, LIMIT.PURPOSE);
-  const factoryType= trimmed(data.factoryType, 20);
-  const entryDate  = trimmed(data.entryDate, 10);
-  const startTime  = trimmed(data.startTime, 5);
-  const endTime    = trimmed(data.endTime, 5);
-
-  if (!userId || !userName) throw new Error('申請者情報が取得できていません。画面を開き直してください。');
-  if (!affiliation)         throw new Error('来客名を入力してください。');
-  if (!purpose)             throw new Error('入場目的を入力してください。');
-
-  if (FACTORY_TYPES.indexOf(factoryType) === -1) throw new Error('見学場所の指定が正しくありません。');
-
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(entryDate)) throw new Error('入場日の形式が正しくありません。');
-  if (entryDate < todayStr()) throw new Error('過去の日付では申請できません。');
-
-  const timePattern = /^([01]\d|2[0-3]):[0-5]\d$/;
-  if (!timePattern.test(startTime)) throw new Error('開始時間の形式が正しくありません。（例 08:30）');
-  if (!timePattern.test(endTime))   throw new Error('終了時間の形式が正しくありません。（例 17:00）');
-  if (startTime >= endTime)         throw new Error('終了時間は開始時間より後にしてください。');
-
-  const peopleCount = Number(data.peopleCount);
-  if (!Number.isInteger(peopleCount) || peopleCount < 1 || peopleCount > LIMIT.PEOPLE_MAX) {
-    throw new Error(`入場人数は1〜${LIMIT.PEOPLE_MAX}の整数で入力してください。`);
-  }
-
-  return { userId, userName, affiliation, purpose, factoryType, entryDate, startTime, endTime, peopleCount };
-}
-// 4.ここまで---------------------------------
-
-
-// ==========================================
-// 5. メインビジネスロジック
-// ==========================================
-function handleSubmission(payload) {
-  const lock = LockService.getScriptLock();
-  if (!lock.tryLock(10000)) throw new Error('システムが混み合っています。少し待ってから再度お試しください。');
-
-  try {
-    const config = getConfig();
-    const data   = validateSubmission(payload);
-
-    const presidentIds = getPresidentIds(config);
-    if (presidentIds.length === 0) {
-      // 宛先がないまま受け付けると「申請したのに誰にも届いていない」状態になるため、ここで止める
-      writeErrorLog('handleSubmission', 'ConfigのPRESIDENT_IDが未設定のため申請を受け付けませんでした。');
-      throw new Error('承認者が設定されていないため申請できません。総務までご連絡ください。');
-    }
-
-    const uid    = createUid();
-    const nowStr = nowString();
-
-    const row = new Array(LAST_COL).fill('');
-    row[COL.UID - 1]          = uid;
-    row[COL.USER_ID - 1]      = data.userId;
-    row[COL.USER_NAME - 1]    = data.userName;
-    row[COL.ENTRY_DATE - 1]   = data.entryDate;
-    row[COL.START_TIME - 1]   = data.startTime;
-    row[COL.END_TIME - 1]     = data.endTime;
-    row[COL.AFFILIATION - 1]  = data.affiliation;
-    row[COL.PEOPLE_COUNT - 1] = data.peopleCount;
-    row[COL.PURPOSE - 1]      = data.purpose;
-    row[COL.STATUS - 1]       = STATUS.PENDING;
-    row[COL.PRESIDENT_ID - 1] = presidentIds.join(',');
-    row[COL.APPLIED_AT - 1]   = nowStr;
-    row[COL.FACTORY_TYPE - 1] = data.factoryType;
-
-    getRecordSheet().appendRow(row);
-
-    // --- 承認者へ承認依頼（ボタン付き） ---
-    // シートへの記録は済んでいるので、通知に失敗しても申請自体は成立させる
-    let warning = '';
-    try {
-      const woffUrl = config.APPROVE_WOFF_URL;
-      if (!woffUrl) throw new Error('ConfigのAPPROVE_WOFF_URLが未設定です。');
-
-      const message = buildApprovalRequestMessage(data, woffUrl);
-      presidentIds.forEach(id => sendMessage(id, null, message));
-    } catch (notifyError) {
-      writeErrorLog('handleSubmission(notify)', notifyError);
-      warning = '申請は受け付けましたが、承認者への通知に失敗しました。総務までご連絡ください。';
-    }
-
-    return createJsonResponse({ status: 'success', uid: uid, warning: warning });
-  } finally {
-    lock.releaseLock();
-  }
-}
-
-
-function handleJudgment(payload) {
-  const lock = LockService.getScriptLock();
-  if (!lock.tryLock(10000)) throw new Error('他の処理が実行中です。少し待ってから再度お試しください。');
-
-  try {
-    const config = getConfig();
-    const uid          = String(payload.uid || '').trim();
-    const judgment     = String(payload.judgment || '').trim();
-    const comment      = String(payload.comment || '').trim().slice(0, LIMIT.COMMENT);
-    const execUserId   = String(payload.execUserId || '').trim();
-    const execUserName = String(payload.execUserName || '').trim().slice(0, LIMIT.USER_NAME);
-
-    if (!uid) throw new Error('申請IDが指定されていません。');
-    if (judgment !== STATUS.APPROVED && judgment !== STATUS.REJECTED) {
-      throw new Error('判断区分が正しくありません。');
-    }
-    if (judgment === STATUS.REJECTED && !comment) {
-      throw new Error('却下する場合は理由の入力が必要です。');
-    }
-    if (!execUserName) throw new Error('判断者名が取得できませんでした。画面を開き直してください。');
-
-    // スマホWOFFなら userId で、PCなら合言葉で権限を確認する
-    assertJudgeAuthority(config, execUserId, payload.adminKey);
-
-    const sheet = getRecordSheet();
-    const recordInfo = findRowData(sheet, COL.UID, uid);
-    if (!recordInfo) throw new Error('該当の申請データが見つかりません。');
-
-    const rowIdx  = recordInfo.rowIndex;
-    const rowData = recordInfo.rowData;
-    const currentStatus = rowData[COL.STATUS - 1];
-
-    if (currentStatus !== STATUS.PENDING) {
-      throw new Error(`この申請は既に「${currentStatus}」として処理されています。`);
-    }
-
-    const rec = toRecord(rowData);
-
-    // 判断結果の記録
-    sheet.getRange(rowIdx, COL.STATUS).setValue(judgment);
-    sheet.getRange(rowIdx, COL.COMMENT).setValue(comment);
-    sheet.getRange(rowIdx, COL.JUDGE_NAME).setValue(execUserName);
-    sheet.getRange(rowIdx, COL.JUDGED_AT).setValue(nowString());
-
-    let warning = '';
-
-    if (judgment === STATUS.APPROVED) {
-      // カレンダー登録（失敗しても判断は成立させ、警告として返す）
-      const eventIds = createCalendarEvents(rec, config);
-      if (eventIds.length > 0) {
-        sheet.getRange(rowIdx, COL.EVENT_IDS).setValue(eventIds.join(','));
-      } else {
-        warning = 'カレンダーへの登録に失敗しました。予定を手動で登録してください。';
-      }
-
-      // 総務へ通知
-      try {
-        const soumuChannelId = config.SOUMU_CHANNEL_ID;
-        if (soumuChannelId) {
-          sendMessage(null, soumuChannelId, { type: 'text', text: buildSoumuApprovedText(rec) });
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>工場入場許可申請</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://static.worksmobile.net/static/wm/woff/edge/3.7.1/sdk.js"></script>
+    <style>
+        body { font-family: sans-serif; }
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .input-error { border-color: #ef4444 !important; background-color: #fef2f2 !important; }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <nav id="mainNav" class="bg-white shadow-sm mb-4">
+        <div class="flex justify-around">
+            <button id="tabBtn-apply" class="flex-1 py-3 text-sm font-bold text-blue-600 border-b-2 border-blue-600 transition" onclick="switchTab('apply')">申請</button>
+            <button id="tabBtn-history" class="flex-1 py-3 text-sm font-bold text-gray-400 border-b-2 border-transparent transition" onclick="switchTab('history')">履歴・取消</button>
+        </div>
+    </nav>
+
+    <div id="loading" class="fixed inset-0 bg-white bg-opacity-80 flex justify-center items-center z-50 hidden">
+        <div class="flex flex-col items-center"><div class="loader mb-2"></div><p id="loadingText" class="text-sm text-gray-600 font-bold">通信中...</p></div>
+    </div>
+
+    <main class="px-4 pb-8 max-w-lg mx-auto">
+        <section id="tab-apply">
+            <div class="bg-white p-5 rounded-lg shadow-sm border border-gray-100">
+                <div class="bg-blue-50 border-l-4 border-blue-500 p-3 rounded mb-5">
+                    <p class="text-xs text-blue-700 font-bold mb-1">申請者情報</p>
+                    <div class="flex items-center gap-2">
+                        <input type="text" id="userName" class="w-full bg-transparent font-bold text-gray-800 outline-none" placeholder="情報を取得中..." readonly>
+                        <button id="authByNameBtn" onclick="authenticateByName()" class="hidden bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2 rounded shadow whitespace-nowrap">連携</button>
+                    </div>
+                    <p id="fallbackMessage" class="text-xs text-red-500 mt-2 hidden">※氏名を漢字で入力して「連携」ボタンを押してください。</p>
+                </div>
+
+                <div class="mb-4">
+                    <label class="block text-sm font-bold mb-1 text-gray-700">来客名（社名など）</label>
+                    <input type="text" id="affiliation" maxlength="100" class="w-full border border-gray-300 rounded-md p-2.5 bg-white outline-none" placeholder="株式会社〇〇">
+                </div>
+
+                <div class="mb-4">
+                    <label class="block text-sm font-bold mb-1 text-gray-700">入場人数（合計）</label>
+                    <div class="flex items-center gap-2">
+                        <input type="number" id="peopleCount" class="w-1/3 border border-gray-300 rounded-md p-2.5 bg-white outline-none" value="1" min="1" max="999" step="1">
+                        <span class="font-bold text-gray-600">名</span>
+                    </div>
+                </div>
+
+                <div class="mb-4">
+                    <label class="block text-sm font-bold mb-1 text-gray-700">見学場所（入場場所）</label>
+                    <select id="factoryType" class="w-full border border-gray-300 rounded-md p-2.5 bg-white outline-none">
+                        <option value="本社工場のみ">本社工場のみ</option>
+                        <option value="第二工場のみ">第二工場のみ</option>
+                        <option value="両方">両方</option>
+                    </select>
+                </div>
+
+                <div class="mb-5 border border-gray-200 p-4 rounded-md bg-gray-50">
+                    <label class="block text-sm font-bold mb-2 text-gray-700">入場日</label>
+                    <input type="date" id="entryDate" class="w-full border border-gray-300 rounded p-2 outline-none">
+                    <p class="text-xs text-gray-500 mt-1">※本日より前の日付は指定できません。</p>
+                </div>
+
+                <div class="mb-5">
+                    <label class="block text-sm font-bold mb-1 text-gray-700">予定時間</label>
+
+                    <p id="timeInputNotice" class="text-xs text-gray-500 mb-2 hidden">
+                        ※Androidで入力できない場合は「8:30」「0830」「１２：３０」などでも入力できます。
+                    </p>
+
+                    <!-- min-w-0 がないと、Androidでtype="text"に切り替えたとき入力欄が縮まず画面からはみ出す -->
+                    <div class="flex items-center gap-2">
+                        <input type="time" id="startTime" class="flex-1 min-w-0 border border-gray-300 rounded p-2 bg-white outline-none">
+                        <span class="text-gray-500 font-bold shrink-0">～</span>
+                        <input type="time" id="endTime" class="flex-1 min-w-0 border border-gray-300 rounded p-2 bg-white outline-none">
+                    </div>
+                    <p id="timeError" class="text-xs text-red-500 mt-1 hidden"></p>
+                </div>
+
+                <div class="mb-6">
+                    <label class="block text-sm font-bold mb-1 text-gray-700">入場目的</label>
+                    <textarea id="purpose" rows="3" maxlength="500" class="w-full border border-gray-300 rounded-md p-2 bg-white outline-none" placeholder="例：設備メンテナンス、見学など"></textarea>
+                </div>
+
+                <button id="submitBtn" onclick="submitApplication()" class="w-full bg-blue-600 text-white font-bold py-3.5 rounded-lg shadow-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition">
+                    入場申請を送信する
+                </button>
+            </div>
+        </section>
+
+        <section id="tab-history" class="hidden">
+            <div class="flex justify-between items-center mb-3 ml-1 gap-2">
+                <h3 class="font-bold text-gray-700 whitespace-nowrap">入場申請履歴</h3>
+                <div class="flex items-center gap-2">
+                    <select id="sortOrder" onchange="applySortAndRender()" class="text-sm border border-gray-300 rounded p-1 bg-white outline-none">
+                        <option value="applyDesc">申請が新しい順</option>
+                        <option value="entryAsc">入場日が近い順</option>
+                        <option value="entryDesc">入場日が遠い順</option>
+                    </select>
+                    <button onclick="fetchListData()" class="text-sm border border-gray-300 rounded px-2 py-1 bg-white hover:bg-gray-50">再読込</button>
+                </div>
+            </div>
+            <div id="historyList" class="space-y-3"></div>
+        </section>
+    </main>
+
+    <script>
+        const GAS_URL = "https://script.google.com/macros/s/AKfycbyKgHIo5Gb_2PMIaOSBs5BLzeu9Lsz5KW8eiTZnYDhZolIebOz7x3kzE98Y6SIEIiMt/exec";
+        const WOFF_ID = "nR8R-Z199Y6TPvMn6beGyA";
+
+        let currentUser = { id: "", name: "" };
+        let isFallbackMode = false;
+        let historyData = [];
+        let isSubmitting = false;
+
+        // ---------- 共通ユーティリティ ----------
+
+        // innerHTML に値を差し込む前に必ず通す。
+        // 社名の「&」や目的の「<」で表示が壊れるのを防ぐため。
+        function esc(value) {
+            return String(value == null ? '' : value).replace(/[&<>"']/g, function (c) {
+                return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+            });
         }
-      } catch (err) {
-        writeErrorLog('handleJudgment(soumu)', err);
-        warning += (warning ? ' ' : '') + '総務への通知に失敗しました。';
-      }
-    }
-
-    // 申請者へ結果通知
-    try {
-      sendMessage(rec.userId, null, { type: 'text', text: buildResultText(rec, judgment, comment) });
-    } catch (err) {
-      writeErrorLog('handleJudgment(applicant)', err);
-      warning += (warning ? ' ' : '') + '申請者への通知に失敗しました。';
-    }
-
-    return createJsonResponse({
-      status: 'success',
-      message: `処理（${judgment}）が完了しました。`,
-      warning: warning
-    });
-  } catch (e) {
-    writeErrorLog('handleJudgment', e);
-    throw e;
-  } finally {
-    lock.releaseLock();
-  }
-}
-
-
-function handleCancellation(payload) {
-  const lock = LockService.getScriptLock();
-  if (!lock.tryLock(10000)) throw new Error('他の処理が実行中です。少し待ってから再度お試しください。');
-
-  try {
-    const config = getConfig();
-    const uid    = String(payload.uid || '').trim();
-    const userId = String(payload.userId || '').trim();
-
-    if (!uid)    throw new Error('申請IDが指定されていません。');
-    if (!userId) throw new Error('利用者情報が取得できていません。画面を開き直してください。');
-
-    const sheet = getRecordSheet();
-    const recordInfo = findRowData(sheet, COL.UID, uid);
-    if (!recordInfo) throw new Error('該当の申請データが見つかりません。');
-
-    const rowData = recordInfo.rowData;
-    const rec     = toRecord(rowData);
-
-    // 本人確認
-    if (rec.userId !== userId) throw new Error('ご自身の申請のみ取り消せます。');
-
-    // 取り消せるのは「判断待ち」「許可」のみ。却下・取消済・期限切れの上書きを防ぐ。
-    if (rec.status !== STATUS.PENDING && rec.status !== STATUS.APPROVED) {
-      throw new Error(`この申請は「${rec.status}」のため取り消せません。`);
-    }
-
-    // 過去日の取消は記録の改ざんになるため弾く（入場日当日まではOK）
-    if (rec.entryDate && rec.entryDate < todayStr()) {
-      throw new Error('入場日を過ぎた申請は取り消せません。');
-    }
-
-    const wasApproved = (rec.status === STATUS.APPROVED);
-
-    sheet.getRange(recordInfo.rowIndex, COL.STATUS).setValue(STATUS.CANCELED);
-    sheet.getRange(recordInfo.rowIndex, COL.CANCELED_AT).setValue(nowString());
-
-    // 許可済みだった場合はカレンダーからも削除
-    if (rec.eventIds) deleteCalendarEvents(rec.eventIds, config);
-
-    const cancelMessage = { type: 'text', text: buildCancelText(rec) };
-
-    // 承認者へは常に通知（判断待ちのものが消えた理由が分かるように）
-    try {
-      getPresidentIds(config).forEach(id => sendMessage(id, null, cancelMessage));
-    } catch (err) {
-      writeErrorLog('handleCancellation(president)', err);
-    }
-
-    // 総務へは「許可済みだったもの」だけ通知。
-    // 判断待ちのまま取り消したものは総務に許可通知が届いていないため、送ると混乱する。
-    if (wasApproved) {
-      try {
-        const soumuChannelId = config.SOUMU_CHANNEL_ID;
-        if (soumuChannelId) sendMessage(null, soumuChannelId, cancelMessage);
-      } catch (err) {
-        writeErrorLog('handleCancellation(soumu)', err);
-      }
-    }
-
-    return createJsonResponse({ status: 'success', uid: uid });
-  } catch (e) {
-    writeErrorLog('handleCancellation', e);
-    throw e;
-  } finally {
-    lock.releaseLock();
-  }
-}
-// 5.ここまで---------------------------------
-
-
-// ==========================================
-// 6. 一覧取得
-// ==========================================
-/**
- * 申請者本人の申請のみを返す（サーバ側で絞り込む）。
- */
-function getMyList(userId) {
-  const uid = String(userId || '').trim();
-  if (!uid) return [];
-
-  const values = getRecordSheet().getDataRange().getValues();
-  const list = [];
-
-  for (let i = 1; i < values.length; i++) {
-    const row = values[i];
-    if (!row[COL.UID - 1]) continue;
-    if (String(row[COL.USER_ID - 1]).trim() !== uid) continue;
-
-    const rec = toRecord(row);
-    list.push({
-      uid:         rec.uid,
-      entryDate:   rec.entryDate,
-      startTime:   rec.startTime,
-      endTime:     rec.endTime,
-      affiliation: rec.affiliation,
-      peopleCount: rec.peopleCount,
-      purpose:     rec.purpose,
-      factoryType: rec.factoryType,
-      status:      rec.status,
-      comment:     rec.comment,
-      appliedAt:   rec.appliedAt,
-      // 取消可能かの判定はサーバ側の条件と揃えておく
-      cancelable:  (rec.status === STATUS.PENDING || rec.status === STATUS.APPROVED)
-                   && !!rec.entryDate && rec.entryDate >= todayStr()
-    });
-  }
-  return list;
-}
-
-/**
- * 判断待ちの申請のみを返す。申請者のIDは判断に不要なので含めない。
- * 入場日が近い順に並べる。
- */
-function getPendingList() {
-  const values = getRecordSheet().getDataRange().getValues();
-  const list = [];
-
-  for (let i = 1; i < values.length; i++) {
-    const row = values[i];
-    if (!row[COL.UID - 1]) continue;
-    if (row[COL.STATUS - 1] !== STATUS.PENDING) continue;
-
-    const rec = toRecord(row);
-    list.push({
-      uid:         rec.uid,
-      userName:    rec.userName,
-      entryDate:   rec.entryDate,
-      startTime:   rec.startTime,
-      endTime:     rec.endTime,
-      affiliation: rec.affiliation,
-      peopleCount: rec.peopleCount,
-      purpose:     rec.purpose,
-      factoryType: rec.factoryType,
-      appliedAt:   rec.appliedAt,
-      isPast:      !!rec.entryDate && rec.entryDate < todayStr()
-    });
-  }
-
-  list.sort((a, b) => {
-    if (a.entryDate !== b.entryDate) return a.entryDate < b.entryDate ? -1 : 1;
-    return a.startTime < b.startTime ? -1 : (a.startTime > b.startTime ? 1 : 0);
-  });
-  return list;
-}
-// 6.ここまで---------------------------------
-
-
-// ==========================================
-// 7. 通知メッセージの組み立て
-// ==========================================
-function buildApprovalRequestMessage(data, woffUrl) {
-  const lines = [
-    '【入場許可申請】',
-    `${data.userName} さんから申請が届きました。`,
-    '',
-    `・入場日: ${displayDate(data.entryDate)}`,
-    `・時間: ${data.startTime} ～ ${data.endTime}`,
-    `・来客: ${data.affiliation} ${data.peopleCount}名`,
-    `・場所: ${data.factoryType}`,
-    `・目的: ${truncate(data.purpose, PURPOSE_IN_MESSAGE)}`,
-    '',
-    '内容を確認し、以下のボタンから判断（許可/却下）を行ってください。'
-  ];
-
-  return {
-    type: 'button_template',
-    contentText: lines.join('\n'),
-    actions: [
-      { type: 'uri', label: '判断フォームを開く', uri: woffUrl }
-    ]
-  };
-}
-
-function buildSoumuApprovedText(rec) {
-  return [
-    '【入場許可通知】',
-    '以下の入場が許可されました。',
-    '',
-    `・申請者: ${rec.userName}`,
-    `・入場日時: ${displayDate(rec.entryDate)} ${rec.startTime}～${rec.endTime}`,
-    `・来客: ${rec.affiliation} ${rec.peopleCount}名`,
-    `・場所: ${rec.factoryType}`,
-    `・目的: ${truncate(rec.purpose, PURPOSE_IN_MESSAGE)}`
-  ].join('\n');
-}
-
-function buildResultText(rec, judgment, comment) {
-  const lines = [
-    '【申請結果のお知らせ】',
-    `あなたの入場申請が「${judgment}」されました。`,
-    '',
-    `・入場日時: ${displayDate(rec.entryDate)} ${rec.startTime}～${rec.endTime}`,
-    `・来客: ${rec.affiliation} ${rec.peopleCount}名`,
-    `・場所: ${rec.factoryType}`
-  ];
-  if (comment) {
-    lines.push('', `・コメント: ${comment}`);
-  }
-  if (judgment === STATUS.REJECTED) {
-    lines.push('', '内容を見直して再度申請するか、直接ご相談ください。');
-  }
-  return lines.join('\n');
-}
-
-function buildCancelText(rec) {
-  return [
-    '【入場申請 取消通知】',
-    '以下の入場申請が申請者により取り消されました。',
-    '',
-    `・申請者: ${rec.userName}`,
-    `・入場日時: ${displayDate(rec.entryDate)} ${rec.startTime}～${rec.endTime}`,
-    `・来客: ${rec.affiliation} ${rec.peopleCount}名`,
-    `・場所: ${rec.factoryType}`
-  ].join('\n');
-}
-
-function buildExpiredText(rec) {
-  return [
-    '【入場申請 期限切れのお知らせ】',
-    '以下の申請が判断されないまま入場日を過ぎたため、期限切れとしました。',
-    '',
-    `・入場日時: ${displayDate(rec.entryDate)} ${rec.startTime}～${rec.endTime}`,
-    `・来客: ${rec.affiliation} ${rec.peopleCount}名`,
-    '',
-    '必要な場合は改めて申請してください。'
-  ].join('\n');
-}
-// 7.ここまで---------------------------------
-
-
-// ==========================================
-// 8. カレンダー操作
-// ==========================================
-function createCalendarEvents(rec, config) {
-  const eventIds = [];
-  try {
-    const sharedUserId = config.SHARED_USER_ID;
-    const sharedCalId  = config.SHARED_CALENDAR_ID;
-    if (!sharedUserId || !sharedCalId) {
-      writeErrorLog('createCalendarEvents', 'SHARED_USER_ID または SHARED_CALENDAR_ID が未設定です。');
-      return eventIds;
-    }
-
-    const title = `[入場許可] ${rec.factoryType} ${rec.affiliation} ${rec.peopleCount}名 (${rec.userName})`;
-    const description = [
-      `目的: ${rec.purpose}`,
-      `場所: ${rec.factoryType}`,
-      `申請者: ${rec.userName}`,
-      `申請ID: ${rec.uid}`
-    ].join('\n');
-
-    const url = `/users/${sharedUserId}/calendars/${sharedCalId}/events`;
-    const payload = buildCalendarPayload(title, description, rec.entryDate, rec.startTime, rec.endTime);
-
-    const res = callLineWorksAPI(url, 'POST', payload);
-    if (res && res.eventComponents && res.eventComponents.length > 0) {
-      eventIds.push(res.eventComponents[0].eventId);
-    }
-  } catch (fatalError) {
-    writeErrorLog('createCalendarEvents', fatalError);
-  }
-  return eventIds;
-}
-
-function deleteCalendarEvents(eventIdsStr, config) {
-  try {
-    if (!eventIdsStr) return;
-    const sharedUserId = config.SHARED_USER_ID;
-    const sharedCalId  = config.SHARED_CALENDAR_ID;
-    if (!sharedUserId || !sharedCalId) return;
-
-    String(eventIdsStr).split(',').forEach(eventId => {
-      const id = eventId.trim();
-      if (!id) return;
-      callLineWorksAPI(`/users/${sharedUserId}/calendars/${sharedCalId}/events/${id}`, 'DELETE');
-    });
-  } catch (error) {
-    writeErrorLog('deleteCalendarEvents', error);
-  }
-}
-
-function buildCalendarPayload(title, description, dateStr, startTime, endTime) {
-  return {
-    eventComponents: [{
-      summary: title,
-      description: description,
-      start: { dateTime: `${dateStr}T${startTime}:00`, timeZone: TZ },
-      end:   { dateTime: `${dateStr}T${endTime}:00`,   timeZone: TZ }
-    }]
-  };
-}
-// 8.ここまで---------------------------------
-
-
-// ==========================================
-// 9. 定期実行（前日リマインド／期限切れ処理）
-// ==========================================
-/**
- * 時間主導型トリガーから1日1回呼ぶ。
- * トリガーは setupDailyTrigger() を一度だけ手動実行して作成する。
- */
-function dailyMaintenance() {
-  try { expirePastPending(); }   catch (e) { writeErrorLog('expirePastPending', e); }
-  try { remindTomorrowPending(); } catch (e) { writeErrorLog('remindTomorrowPending', e); }
-}
-
-/**
- * トリガーを作成（重複作成を防ぐため既存のものは削除する）。
- * GASエディタからこの関数を一度だけ実行すること。
- */
-function setupDailyTrigger() {
-  ScriptApp.getProjectTriggers().forEach(t => {
-    if (t.getHandlerFunction() === 'dailyMaintenance') ScriptApp.deleteTrigger(t);
-  });
-  ScriptApp.newTrigger('dailyMaintenance').timeBased().atHour(17).everyDays(1).create();
-  Logger.log('毎日17時台に dailyMaintenance を実行するトリガーを作成しました。');
-}
-
-/**
- * 入場日を過ぎても判断待ちのままの申請を「期限切れ」にし、申請者へ通知する。
- */
-function expirePastPending() {
-  const sheet  = getRecordSheet();
-  const values = sheet.getDataRange().getValues();
-  const today  = todayStr();
-  const nowStr = nowString();
-  let count = 0;
-
-  for (let i = 1; i < values.length; i++) {
-    const row = values[i];
-    if (!row[COL.UID - 1]) continue;
-    if (row[COL.STATUS - 1] !== STATUS.PENDING) continue;
-
-    const rec = toRecord(row);
-    if (!rec.entryDate || rec.entryDate >= today) continue;
-
-    sheet.getRange(i + 1, COL.STATUS).setValue(STATUS.EXPIRED);
-    sheet.getRange(i + 1, COL.JUDGE_NAME).setValue('システム(自動)');
-    sheet.getRange(i + 1, COL.JUDGED_AT).setValue(nowStr);
-    count++;
-
-    try {
-      if (rec.userId) sendMessage(rec.userId, null, { type: 'text', text: buildExpiredText(rec) });
-    } catch (e) {
-      writeErrorLog('expirePastPending(notify)', e);
-    }
-  }
-  Logger.log(`期限切れに更新: ${count}件`);
-}
-
-/**
- * 翌日入場予定で判断待ちのものを、承認者へまとめてリマインドする。
- */
-function remindTomorrowPending() {
-  const config = getConfig();
-  const presidentIds = getPresidentIds(config);
-  if (presidentIds.length === 0) return;
-
-  const tomorrow = addDaysStr(todayStr(), 1);
-  const values = getRecordSheet().getDataRange().getValues();
-  const targets = [];
-
-  for (let i = 1; i < values.length; i++) {
-    const row = values[i];
-    if (!row[COL.UID - 1]) continue;
-    if (row[COL.STATUS - 1] !== STATUS.PENDING) continue;
-
-    const rec = toRecord(row);
-    if (rec.entryDate === tomorrow) targets.push(rec);
-  }
-
-  if (targets.length === 0) return;
-
-  const lines = [
-    '【未判断の入場申請があります】',
-    `明日 ${displayDate(tomorrow)} 入場予定の申請が ${targets.length}件、判断待ちです。`,
-    ''
-  ];
-  targets.forEach((rec, idx) => {
-    lines.push(`${idx + 1}. ${rec.userName} / ${rec.affiliation} ${rec.peopleCount}名`);
-    lines.push(`   ${rec.startTime}～${rec.endTime} / ${rec.factoryType}`);
-  });
-  lines.push('', '判断フォームから処理をお願いします。');
-
-  const woffUrl = config.APPROVE_WOFF_URL;
-  const message = woffUrl
-    ? { type: 'button_template', contentText: lines.join('\n'), actions: [{ type: 'uri', label: '判断フォームを開く', uri: woffUrl }] }
-    : { type: 'text', text: lines.join('\n') };
-
-  presidentIds.forEach(id => {
-    try { sendMessage(id, null, message); }
-    catch (e) { writeErrorLog('remindTomorrowPending(send)', e); }
-  });
-
-  Logger.log(`リマインド送信: ${targets.length}件`);
-}
-// 9.ここまで---------------------------------
-
-
-// ==========================================
-// 10. ユーザー情報
-// ==========================================
-/**
- * 画面表示に必要な氏名のみを返す。
- * managerId / role は画面側で使わないうえ、GASのURLは直接叩けるため返さない。
- */
-function getUserInfo(userId) {
-  if (!userId) return { userName: '' };
-  const sheet = getTargetSpreadsheet().getSheetByName(SHEET_NAME_MASTER);
-  if (!sheet) throw new Error(`${SHEET_NAME_MASTER}シートが見つかりません。`);
-
-  const info = findRowData(sheet, 1, userId);
-  return info ? { userName: info.rowData[1] } : { userName: '' };
-}
-
-function getUserInfoByName(userName) {
-  const name = String(userName || '').trim();
-  if (!name) return { status: 'error', message: '氏名が入力されていません。' };
-
-  const sheet = getTargetSpreadsheet().getSheetByName(SHEET_NAME_MASTER);
-  if (!sheet) throw new Error(`${SHEET_NAME_MASTER}シートが見つかりません。`);
-
-  const info = findRowData(sheet, 2, name);
-  if (!info) return { status: 'error', message: 'User not found' };
-
-  return { status: 'success', data: { userId: info.rowData[0], userName: info.rowData[1] } };
-}
-// 10.ここまで--------------------------------
-
-
-// ==========================================
-// 11. ユーティリティ
-// ==========================================
-/**
- * 1行分の配列を扱いやすいオブジェクトに変換する。
- * 日付・時刻はシートの入力方法によって Date にも文字列にもなるため、ここで正規化する。
- */
-function toRecord(rowData) {
-  return {
-    uid:         String(rowData[COL.UID - 1] || '').trim(),
-    userId:      String(rowData[COL.USER_ID - 1] || '').trim(),
-    userName:    String(rowData[COL.USER_NAME - 1] || ''),
-    entryDate:   formatDateSafe(rowData[COL.ENTRY_DATE - 1]),
-    startTime:   formatTimeSafe(rowData[COL.START_TIME - 1]),
-    endTime:     formatTimeSafe(rowData[COL.END_TIME - 1]),
-    affiliation: String(rowData[COL.AFFILIATION - 1] || ''),
-    peopleCount: rowData[COL.PEOPLE_COUNT - 1],
-    purpose:     String(rowData[COL.PURPOSE - 1] || ''),
-    status:      String(rowData[COL.STATUS - 1] || ''),
-    eventIds:    String(rowData[COL.EVENT_IDS - 1] || '').trim(),
-    appliedAt:   String(rowData[COL.APPLIED_AT - 1] || ''),
-    comment:     String(rowData[COL.COMMENT - 1] || ''),
-    factoryType: String(rowData[COL.FACTORY_TYPE - 1] || '未指定'),
-    judgeName:   String(rowData[COL.JUDGE_NAME - 1] || '')
-  };
-}
-
-/**
- * 申請IDを作る。同じ秒に2件通っても衝突しないよう乱数を付ける。
- */
-function createUid() {
-  const ts = Utilities.formatDate(new Date(), TZ, 'yyyyMMddHHmmss');
-  const rand = String(Math.floor(Math.random() * 10000)).padStart(4, '0');
-  return `UID-${ts}-${rand}`;
-}
-
-function nowString() {
-  return Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd HH:mm:ss');
-}
-
-function todayStr() {
-  return Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd');
-}
-
-/**
- * 'yyyy-MM-dd' に日数を足した文字列を返す。
- */
-function addDaysStr(dateStr, days) {
-  const p = dateStr.split('-');
-  const d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
-  d.setDate(d.getDate() + days);
-  return Utilities.formatDate(d, TZ, 'yyyy-MM-dd');
-}
-
-/**
- * 'yyyy-MM-dd' を「9月15日(月)」形式にする。
- * 文字列から直接組み立てるのでタイムゾーンによるズレが起きない。
- */
-function displayDate(dateStr) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateStr))) return String(dateStr || '');
-  const p = String(dateStr).split('-');
-  const d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
-  const week = ['日', '月', '火', '水', '木', '金', '土'][d.getDay()];
-  return `${Number(p[1])}月${Number(p[2])}日(${week})`;
-}
-
-function formatDateSafe(dateValue) {
-  if (!dateValue) return '';
-  if (dateValue instanceof Date) {
-    return isNaN(dateValue.getTime()) ? '' : Utilities.formatDate(dateValue, TZ, 'yyyy-MM-dd');
-  }
-  const s = String(dateValue).trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s; // すでに正しい形式ならそのまま
-  const d = new Date(s);
-  return isNaN(d.getTime()) ? s : Utilities.formatDate(d, TZ, 'yyyy-MM-dd');
-}
-
-function formatTimeSafe(time) {
-  if (!time) return '';
-  try {
-    if (time instanceof Date) return Utilities.formatDate(time, TZ, 'HH:mm');
-    const timeStr = String(time);
-    const match = timeStr.match(/(\d{1,2}):(\d{2})/);
-    if (match) return `${match[1].padStart(2, '0')}:${match[2]}`;
-    return timeStr;
-  } catch (e) {
-    return String(time);
-  }
-}
-
-function truncate(str, max) {
-  const s = String(str || '');
-  return s.length > max ? s.slice(0, max) + '…' : s;
-}
-
-/**
- * 指定列の値が一致する最初の行を返す。
- * 件数が増えると全件読み込みになるが、年間数百件程度を想定しているため許容する。
- */
-function findRowData(sheet, columnIndex, searchValue) {
-  const values = sheet.getDataRange().getValues();
-  const target = String(searchValue).trim();
-  for (let i = 1; i < values.length; i++) {
-    if (String(values[i][columnIndex - 1]).trim() === target) {
-      return { rowIndex: i + 1, rowData: values[i] };
-    }
-  }
-  return null;
-}
-
-function writeErrorLog(functionName, errorData) {
-  // ログ書き込み自体の失敗で本処理を止めないよう、全体をtryで包む
-  try {
-    const ss = getTargetSpreadsheet();
-    let logSheet = ss.getSheetByName(SHEET_NAME_LOG);
-    if (!logSheet) {
-      logSheet = ss.insertSheet(SHEET_NAME_LOG);
-      logSheet.appendRow(['発生日時', '関数名', 'エラー内容']);
-    }
-    const detail = (errorData && errorData.stack) ? errorData.stack : String(errorData);
-    logSheet.appendRow([nowString(), functionName, detail.slice(0, 2000)]);
-  } catch (e) {
-    Logger.log(`ログ書き込み失敗: ${functionName} / ${errorData}`);
-  }
-}
-// 11.ここまで--------------------------------
-
-
-// ==========================================
-// 12. LINE WORKS API 通信
-// ==========================================
-function callLineWorksAPI(endpoint, method, payload, retryCount, tokenRetried) {
-  retryCount  = retryCount  || 0;
-  tokenRetried = tokenRetried || false;
-
-  const token = getAccessToken();
-  const url = 'https://www.worksapis.com/v1.0' + endpoint;
-
-  const options = {
-    method: method,
-    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-    muteHttpExceptions: true
-  };
-  if (payload && (method === 'POST' || method === 'PUT')) {
-    options.payload = JSON.stringify(payload);
-  }
-
-  const response = UrlFetchApp.fetch(url, options);
-  const code = response.getResponseCode();
-  const resText = response.getContentText();
-
-  if (code >= 200 && code < 300) {
-    return resText ? JSON.parse(resText) : {};
-  }
-
-  // キャッシュしたトークンが無効になっていた場合、取り直して1回だけ再試行する
-  if (code === 401 && !tokenRetried) {
-    clearTokenCache();
-    return callLineWorksAPI(endpoint, method, payload, retryCount, true);
-  }
-
-  // 一時的なサーバエラーは指数バックオフで再試行
-  if ((code === 500 || code === 502 || code === 503) && retryCount < 3) {
-    Utilities.sleep(1000 * Math.pow(2, retryCount));
-    return callLineWorksAPI(endpoint, method, payload, retryCount + 1, tokenRetried);
-  }
-
-  // 既に消えている予定の削除は成功扱いにする
-  if (method === 'DELETE' && code === 404) return {};
-
-  Logger.log(`API Error [${code}]: ${resText}`);
-  throw new Error(`API Error [${code}]: ${resText}`);
-}
-
-function sendMessage(accountId, channelId, messageObject) {
-  const config = getConfig();
-  if (!config.BOT_ID) throw new Error('ConfigのBOT_IDが未設定です。');
-
-  let endpoint;
-  if (accountId) {
-    endpoint = `/bots/${config.BOT_ID}/users/${accountId}/messages`;
-  } else if (channelId) {
-    endpoint = `/bots/${config.BOT_ID}/channels/${channelId}/messages`;
-  } else {
-    throw new Error('通知の送信先が指定されていません。');
-  }
-
-  return callLineWorksAPI(endpoint, 'POST', { content: messageObject });
-}
-// 12.ここまで--------------------------------
+
+        function todayStr() {
+            const d = new Date();
+            const p = (n) => String(n).padStart(2, '0');
+            return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+        }
+
+        // 時刻の表記ゆれを HH:mm に揃える。変換できない場合は空文字を返す。
+        function normalizeTime(str) {
+            if (!str) return "";
+            str = String(str).trim();
+            str = str.replace(/[０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)); // 全角数字→半角
+            str = str.replace(/[：:]/g, ":");
+
+            if (/^\d{4}$/.test(str))      str = str.slice(0, 2) + ":" + str.slice(2); // 0830
+            else if (/^\d{3}$/.test(str)) str = "0" + str[0] + ":" + str.slice(1);    // 830
+            else if (/^\d:\d{2}$/.test(str)) str = "0" + str;                          // 8:30
+
+            return /^([01]\d|2[0-3]):([0-5]\d)$/.test(str) ? str : "";
+        }
+
+        function setTimeError(message) {
+            const el = document.getElementById('timeError');
+            if (message) {
+                el.textContent = message;
+                el.classList.remove('hidden');
+            } else {
+                el.textContent = '';
+                el.classList.add('hidden');
+            }
+        }
+
+        function showLoading(show, text = "通信中...") {
+            document.getElementById('loadingText').textContent = text;
+            document.getElementById('loading').style.display = show ? 'flex' : 'none';
+        }
+
+        async function fetchGasPost(action, payload) {
+            const res = await fetch(GAS_URL, {
+                method: "POST",
+                headers: { "Content-Type": "text/plain" },
+                body: JSON.stringify({ action: action, payload: payload })
+            });
+            const text = await res.text();
+            if (!res.ok) throw new Error(`通信エラー (HTTP ${res.status})`);
+            try {
+                return JSON.parse(text);
+            } catch (e) {
+                // GASがJSONを返していない = スクリプトまで到達していない可能性が高い
+                const body = text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300);
+                throw new Error(`サーバーの応答がJSONではありません。\n受信内容: ${body}`);
+            }
+        }
+
+        // ---------- 初期化 ----------
+
+        window.onload = () => {
+            // 入場日は本日以降のみ
+            document.getElementById('entryDate').min = todayStr();
+
+            // Android Chrome は type="time" がうまく動かない端末があるため text に切り替える
+            if (/Android/i.test(navigator.userAgent)) {
+                document.getElementById('timeInputNotice').classList.remove('hidden');
+                ["startTime", "endTime"].forEach(id => {
+                    const el = document.getElementById(id);
+                    el.type = "text";
+                    el.placeholder = "08:30";
+                    el.inputMode = "numeric";
+                    el.maxLength = 6;
+                    el.size = 5; // 既定の size=20 のままだと横幅が広がりすぎる
+
+                    el.addEventListener("blur", () => {
+                        const raw = el.value.trim();
+                        if (!raw) { el.classList.remove('input-error'); setTimeError(''); return; }
+                        const normalized = normalizeTime(raw);
+                        if (normalized) {
+                            // 変換できたときだけ書き換える。失敗時に入力を消さないようにする。
+                            el.value = normalized;
+                            el.classList.remove('input-error');
+                            setTimeError('');
+                        } else {
+                            el.classList.add('input-error');
+                            setTimeError('時刻の形式が正しくありません。「08:30」「0830」のように入力してください。');
+                        }
+                    });
+                });
+            }
+
+            if (typeof woff !== 'undefined' && woff.init) {
+                woff.init({ woffId: WOFF_ID })
+                    .then(() => woff.getProfile())
+                    .then(profile => {
+                        currentUser.id = profile.userId;
+                        initApp('apply');
+                    })
+                    .catch(() => activateFallbackMode('apply'));
+            } else {
+                activateFallbackMode('apply');
+            }
+        };
+
+        // PCブラウザ版など userId を取得できない環境向けのフォールバック
+        function activateFallbackMode(targetTab) {
+            isFallbackMode = true;
+            const un = document.getElementById('userName');
+            un.value = "";
+            un.placeholder = "氏名を漢字で入力";
+            un.removeAttribute('readonly');
+            un.classList.remove('bg-transparent', 'font-bold');
+            un.classList.add('border', 'border-gray-300', 'bg-white', 'p-2', 'rounded-md');
+            document.getElementById('authByNameBtn').classList.remove('hidden');
+            document.getElementById('fallbackMessage').classList.remove('hidden');
+            switchTab(targetTab);
+        }
+
+        async function initApp(targetTab) {
+            showLoading(true, "ユーザー情報を取得中...");
+            try {
+                const json = await fetchGasPost('getUser', { userId: currentUser.id });
+                if (json.status === 'success' && json.data && json.data.userName) {
+                    currentUser.name = json.data.userName;
+                    document.getElementById('userName').value = currentUser.name;
+                    switchTab(targetTab);
+                } else {
+                    throw new Error('マスタ未登録');
+                }
+            } catch (e) {
+                activateFallbackMode(targetTab);
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        async function authenticateByName() {
+            const nameInput = document.getElementById('userName').value.trim();
+            if (!nameInput) return alert("氏名を入力してください。");
+
+            showLoading(true, "マスタと連携中...");
+            try {
+                const json = await fetchGasPost('getUserByName', { userName: nameInput });
+                if (json.status === 'success' && json.data) {
+                    currentUser.id = json.data.userId;
+                    currentUser.name = json.data.userName;
+
+                    const un = document.getElementById('userName');
+                    un.value = currentUser.name;
+                    un.setAttribute('readonly', 'true');
+                    un.classList.remove('border', 'border-gray-300', 'bg-white', 'p-2', 'rounded-md');
+                    un.classList.add('bg-transparent', 'font-bold');
+                    document.getElementById('authByNameBtn').classList.add('hidden');
+                    document.getElementById('fallbackMessage').classList.add('hidden');
+
+                    alert(`「${currentUser.name}」さんとして連携しました。`);
+                    switchTab('apply');
+                } else {
+                    alert("マスタに該当する名前が見つかりません。");
+                }
+            } catch (e) {
+                alert("通信エラーが発生しました。");
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        function switchTab(tabId) {
+            ['apply', 'history'].forEach(id => {
+                const section = document.getElementById('tab-' + id);
+                const btn = document.getElementById('tabBtn-' + id);
+                if (id === tabId) {
+                    section?.classList.remove('hidden');
+                    btn?.classList.add('text-blue-600', 'border-blue-600');
+                    btn?.classList.remove('text-gray-400', 'border-transparent');
+                } else {
+                    section?.classList.add('hidden');
+                    btn?.classList.remove('text-blue-600', 'border-blue-600');
+                    btn?.classList.add('text-gray-400', 'border-transparent');
+                }
+            });
+
+            if (tabId === 'history') {
+                if (!currentUser.id) {
+                    alert("まずは氏名を連携してください。");
+                    switchTab('apply');
+                } else {
+                    fetchListData();
+                }
+            }
+        }
+
+        // ---------- 申請 ----------
+
+        async function submitApplication() {
+            if (isSubmitting) return;
+
+            if (!currentUser.id || !currentUser.name) {
+                alert("申請を行う前に、氏名の連携を行ってください。");
+                return;
+            }
+
+            const affiliation = document.getElementById('affiliation').value.trim();
+            const peopleRaw   = document.getElementById('peopleCount').value.trim();
+            const factoryType = document.getElementById('factoryType').value;
+            const entryDate   = document.getElementById('entryDate').value;
+            const purpose     = document.getElementById('purpose').value.trim();
+
+            const startTime = normalizeTime(document.getElementById('startTime').value);
+            const endTime   = normalizeTime(document.getElementById('endTime').value);
+            if (startTime) document.getElementById('startTime').value = startTime;
+            if (endTime)   document.getElementById('endTime').value = endTime;
+
+            if (!affiliation) return alert("来客名を入力してください。");
+            if (!entryDate)   return alert("入場日を指定してください。");
+            if (!purpose)     return alert("入場目的を入力してください。");
+
+            const peopleCount = Number(peopleRaw);
+            if (!peopleRaw || !Number.isInteger(peopleCount) || peopleCount < 1 || peopleCount > 999) {
+                return alert("入場人数は1〜999の整数で入力してください。");
+            }
+
+            if (entryDate < todayStr()) {
+                return alert("本日より前の日付では申請できません。");
+            }
+
+            if (!startTime || !endTime) {
+                setTimeError('時刻の形式が正しくありません。「08:30」「0830」のように入力してください。');
+                return alert("予定時間を正しく入力してください。（例 08:30）");
+            }
+            if (startTime >= endTime) {
+                return alert("終了時間は開始時間より後の時間を指定してください。");
+            }
+            setTimeError('');
+
+            const data = {
+                userId: currentUser.id,
+                userName: currentUser.name,
+                affiliation: affiliation,
+                peopleCount: peopleCount,
+                factoryType: factoryType,
+                entryDate: entryDate,
+                startTime: startTime,
+                endTime: endTime,
+                purpose: purpose
+            };
+
+            isSubmitting = true;
+            document.getElementById('submitBtn').disabled = true;
+            showLoading(true, "送信中...");
+            try {
+                const json = await fetchGasPost('submit', data);
+                if (json.status !== 'success') throw new Error(json.message);
+
+                alert(json.warning
+                    ? `入場申請が完了しました。\n\n${json.warning}`
+                    : "入場申請が完了しました。判断をお待ちください。");
+
+                if (typeof woff !== 'undefined' && woff.isLoggedIn && woff.isLoggedIn()) {
+                    woff.closeWindow();
+                } else {
+                    location.reload();
+                }
+            } catch (e) {
+                alert("送信失敗: " + e.message);
+            } finally {
+                isSubmitting = false;
+                document.getElementById('submitBtn').disabled = false;
+                showLoading(false);
+            }
+        }
+
+        // ---------- 履歴・取消 ----------
+
+        async function fetchListData() {
+            if (!currentUser.id) return;
+
+            showLoading(true, "履歴を取得中...");
+            try {
+                // 絞り込みはGAS側で行うため、自分の申請だけが返ってくる
+                const json = await fetchGasPost('getMyList', { userId: currentUser.id });
+                if (json.status !== 'success') throw new Error(json.message);
+                historyData = json.data || [];
+                applySortAndRender();
+            } catch (e) {
+                document.getElementById('historyList').innerHTML =
+                    '<div class="bg-white p-4 text-center text-sm text-red-500">履歴の取得に失敗しました。<br>「再読込」を押してください。</div>';
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        function applySortAndRender() {
+            const sortOrder = document.getElementById('sortOrder').value;
+            const sorted = [...historyData];
+
+            // iOS Safari は "2026-09-15 08:30" を解釈できないため 'T' 区切りにする
+            const entryMs = (item) => new Date(`${item.entryDate}T${item.startTime || '00:00'}:00`).getTime();
+
+            if (sortOrder === 'applyDesc') {
+                sorted.sort((a, b) => String(b.appliedAt || '').localeCompare(String(a.appliedAt || '')));
+            } else if (sortOrder === 'entryAsc') {
+                sorted.sort((a, b) => entryMs(a) - entryMs(b));
+            } else if (sortOrder === 'entryDesc') {
+                sorted.sort((a, b) => entryMs(b) - entryMs(a));
+            }
+
+            renderHistory(sorted);
+        }
+
+        function statusStyle(status) {
+            switch (status) {
+                case '許可':     return { border: 'border-green-500',  badge: 'bg-green-100 text-green-700' };
+                case '却下':     return { border: 'border-red-400',    badge: 'bg-red-100 text-red-700' };
+                case '取消完了': return { border: 'border-gray-400',   badge: 'bg-gray-200 text-gray-600' };
+                case '期限切れ': return { border: 'border-gray-400',   badge: 'bg-gray-200 text-gray-600' };
+                default:         return { border: 'border-yellow-400', badge: 'bg-yellow-100 text-yellow-700' };
+            }
+        }
+
+        function renderHistory(list) {
+            const container = document.getElementById('historyList');
+            if (!list || list.length === 0) {
+                container.innerHTML = '<div class="bg-white p-4 text-center text-sm text-gray-500">履歴はありません</div>';
+                return;
+            }
+
+            container.innerHTML = list.map(item => {
+                const style = statusStyle(item.status);
+
+                // 却下理由・許可コメントは通知だけでなく履歴でも確認できるようにする
+                const commentBlock = item.comment
+                    ? `<div class="text-sm bg-gray-50 border border-gray-200 rounded p-2 mb-3">
+                           <span class="font-bold text-gray-500 text-xs block mb-1">${item.status === '却下' ? '却下理由' : 'コメント'}</span>
+                           <span class="text-gray-700 whitespace-pre-wrap">${esc(item.comment)}</span>
+                       </div>`
+                    : '';
+
+                const cancelButton = item.cancelable
+                    ? `<button class="w-full text-red-500 bg-red-50 border border-red-200 hover:bg-red-100 font-bold rounded-md py-2 transition text-sm" onclick="cancelRequest('${esc(item.uid)}')">申請を取り消す</button>`
+                    : '';
+
+                return `
+                    <div class="bg-white p-4 rounded-lg shadow-sm border border-l-4 ${style.border}">
+                        <div class="flex justify-between items-center mb-2 gap-2">
+                            <span class="font-bold text-gray-800">${esc(item.affiliation)}（${esc(item.peopleCount)}名）</span>
+                            <span class="text-xs ${style.badge} px-2 py-1 rounded-full font-bold whitespace-nowrap">${esc(item.status)}</span>
+                        </div>
+                        <div class="text-sm text-gray-600 space-y-1 mb-3">
+                            <p>入場日: ${esc(item.entryDate)}</p>
+                            <p>時間: ${esc(item.startTime)} ～ ${esc(item.endTime)}</p>
+                            <p>場所: ${esc(item.factoryType || '未指定')}</p>
+                            <p>目的: ${esc(item.purpose)}</p>
+                        </div>
+                        ${commentBlock}
+                        ${cancelButton}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function cancelRequest(uid) {
+            if (!confirm("この入場申請を取り消しますか？")) return;
+
+            showLoading(true, "取消処理中...");
+            try {
+                // 本人確認のため userId も送る
+                const json = await fetchGasPost('cancel', { uid: uid, userId: currentUser.id });
+                if (json.status !== 'success') throw new Error(json.message);
+                alert("取り消しました。");
+                await fetchListData();
+            } catch (e) {
+                alert("エラー: " + e.message);
+            } finally {
+                showLoading(false);
+            }
+        }
+    </script>
+</body>
+</html>
+
