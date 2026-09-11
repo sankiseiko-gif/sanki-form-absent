@@ -33,11 +33,22 @@
             <p id="judgeInfoName" class="font-bold text-gray-800"></p>
         </div>
 
-        <!-- PCブラウザなど、WOFF から氏名を取得できないときの入力欄 -->
-        <div id="judgeNameBox" class="hidden bg-yellow-50 border-l-4 border-yellow-400 p-3 rounded mb-4">
+        <!-- PCブラウザなど、WOFF から userId を取得できないときの入力欄 -->
+        <div id="judgeNameBox" class="hidden bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded mb-4">
+            <p class="text-sm text-yellow-900 font-bold mb-3">PCから利用するには合言葉が必要です</p>
+
             <label class="block text-xs text-yellow-800 font-bold mb-1">判断者名（記録用）</label>
-            <input type="text" id="judgeNameInput" maxlength="50" class="w-full border border-gray-300 rounded-md p-2 bg-white outline-none" placeholder="例：山田太郎">
-            <p class="text-xs text-yellow-700 mt-1">※誰が判断したかを記録するために使用します。次回から自動入力されます。</p>
+            <input type="text" id="judgeNameInput" maxlength="50" class="w-full border border-gray-300 rounded-md p-2 bg-white outline-none mb-3" placeholder="例：山田太郎">
+
+            <label class="block text-xs text-yellow-800 font-bold mb-1">合言葉</label>
+            <input type="password" id="adminKeyInput" maxlength="100" class="w-full border border-gray-300 rounded-md p-2 bg-white outline-none" placeholder="合言葉を入力">
+
+            <button onclick="unlockWithKey()" class="w-full mt-3 bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 rounded-lg shadow-sm transition">
+                一覧を表示する
+            </button>
+
+            <p id="keyMessage" class="text-xs text-red-600 font-bold mt-2 hidden"></p>
+            <p class="text-xs text-yellow-700 mt-2">※次回からは自動で入力されます。スマホのLINE WORKSから開く場合は合言葉は不要です。</p>
         </div>
 
         <div id="judgementList" class="space-y-4"></div>
@@ -46,9 +57,19 @@
             <p class="text-gray-400 font-bold">現在、判断待ちの申請はありません。</p>
         </div>
 
-        <div id="errorState" class="hidden text-center py-20">
-            <p class="text-red-500 font-bold mb-3">リストの取得に失敗しました。</p>
+        <div id="errorState" class="hidden text-center py-12">
+            <p class="text-red-500 font-bold mb-2">リストの取得に失敗しました。</p>
+            <p id="errorDetail" class="text-xs text-gray-600 whitespace-pre-wrap break-all bg-white border border-gray-200 rounded p-3 mb-3 text-left"></p>
             <button onclick="fetchJudgeList()" class="border border-gray-300 rounded px-4 py-2 bg-white hover:bg-gray-50 text-sm font-bold">再読込</button>
+        </div>
+
+        <!-- 切り分け用。原因が判明したらこのブロックごと削除してよい -->
+        <div class="mt-10 border-t border-gray-200 pt-4">
+            <div class="flex items-center justify-between gap-2">
+                <p id="connState" class="text-xs text-gray-500"></p>
+                <button onclick="runDiagnostics()" class="text-xs border border-gray-300 rounded px-2 py-1 bg-white hover:bg-gray-50 whitespace-nowrap">接続診断</button>
+            </div>
+            <pre id="diagResult" class="hidden text-xs bg-white border border-gray-200 rounded p-3 mt-2 overflow-x-auto whitespace-pre-wrap break-all"></pre>
         </div>
     </main>
 
@@ -59,6 +80,10 @@
         const WOFF_ID = "geWMgEPIfkNzWbzjeSl0Ng";
 
         const JUDGE_NAME_STORAGE_KEY = "entryPermit.judgeName";
+        const ADMIN_KEY_STORAGE_KEY = "entryPermit.adminKey";
+
+        // GAS側の合言葉エラーと一致させる。これを受け取ったら保存済みの合言葉を捨てる。
+        const ERR_BAD_ADMIN_KEY = "合言葉が違います。";
 
         // userId は WOFF 経由でのみ取得できる。取得できた場合、GAS側で承認者かどうかを照合する。
         let judgeUser = { id: "", name: "" };
@@ -83,24 +108,79 @@
                 headers: { "Content-Type": "text/plain" },
                 body: JSON.stringify({ action: action, payload: payload })
             });
-            if (!res.ok) throw new Error(`通信エラー (${res.status})`);
-            return res.json();
+            const text = await res.text();
+            if (!res.ok) throw new Error(`通信エラー (HTTP ${res.status})`);
+            try {
+                return JSON.parse(text);
+            } catch (e) {
+                // GASがJSONを返していない = スクリプトまで到達していない可能性が高い
+                // （デプロイのアクセス権限、ログイン要求、デプロイ未更新など）
+                const body = text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300);
+                throw new Error(`サーバーの応答がJSONではありません。GASのデプロイ設定を確認してください。\n受信内容: ${body}`);
+            }
         }
 
-        function loadStoredJudgeName() {
-            try { return localStorage.getItem(JUDGE_NAME_STORAGE_KEY) || ""; }
+        function loadStored(key) {
+            try { return localStorage.getItem(key) || ""; }
             catch (e) { return ""; }
         }
 
-        function saveJudgeName(name) {
-            try { localStorage.setItem(JUDGE_NAME_STORAGE_KEY, name); } catch (e) {}
+        function saveStored(key, value) {
+            try { localStorage.setItem(key, value); } catch (e) {}
+        }
+
+        function clearStored(key) {
+            try { localStorage.removeItem(key); } catch (e) {}
         }
 
         // 判断者名を確定する。WOFF が使えない場合は入力欄の値を使う。
         function resolveJudgeName() {
             if (judgeUser.name) return judgeUser.name;
-            const input = document.getElementById('judgeNameInput').value.trim();
-            return input;
+            return document.getElementById('judgeNameInput').value.trim();
+        }
+
+        // 合言葉は WOFF で userId が取れないとき（PC）だけ必要になる
+        function resolveAdminKey() {
+            if (judgeUser.id) return "";
+            return document.getElementById('adminKeyInput').value.trim();
+        }
+
+        // GASに送る認証情報。スマホWOFFなら userId、PCなら合言葉で判定される。
+        function authPayload() {
+            return { execUserId: judgeUser.id, adminKey: resolveAdminKey() };
+        }
+
+        function showKeyMessage(message) {
+            const el = document.getElementById('keyMessage');
+            if (message) {
+                el.textContent = message;
+                el.classList.remove('hidden');
+            } else {
+                el.textContent = '';
+                el.classList.add('hidden');
+            }
+        }
+
+        // 合言葉が違うと言われたら、保存済みのものを消して入力し直してもらう
+        function handleAuthError(message) {
+            if (String(message).includes(ERR_BAD_ADMIN_KEY)) {
+                clearStored(ADMIN_KEY_STORAGE_KEY);
+                document.getElementById('adminKeyInput').value = '';
+                showKeyMessage('合言葉が違います。もう一度入力してください。');
+                return true;
+            }
+            return false;
+        }
+
+        // PCで合言葉を入力して一覧を表示する
+        async function unlockWithKey() {
+            const key = document.getElementById('adminKeyInput').value.trim();
+            if (!key) {
+                showKeyMessage('合言葉を入力してください。');
+                return;
+            }
+            showKeyMessage('');
+            await fetchJudgeList();
         }
 
         // ---------- 初期化 ----------
@@ -112,27 +192,83 @@
                     .then(profile => {
                         judgeUser.id = profile.userId || "";
                         judgeUser.name = profile.displayName || "";
-                        if (judgeUser.name) {
-                            document.getElementById('judgeInfoName').textContent = judgeUser.name;
+                        let autoLoad = true;
+                        if (judgeUser.id) {
+                            // userId が取れた = GAS側で承認者かを照合できる。合言葉は不要。
+                            document.getElementById('judgeInfoName').textContent = judgeUser.name || '(氏名未取得)';
                             document.getElementById('judgeInfo').classList.remove('hidden');
                         } else {
-                            activateNameInput();
+                            autoLoad = activateNameInput();
                         }
-                        fetchJudgeList();
+                        updateConnState();
+                        if (autoLoad) fetchJudgeList();
                     })
-                    .catch(() => { activateNameInput(); fetchJudgeList(); });
+                    .catch((err) => {
+                        const autoLoad = activateNameInput();
+                        updateConnState(err && err.message ? String(err.message).slice(0, 60) : 'WOFF初期化に失敗');
+                        if (autoLoad) fetchJudgeList();
+                    });
             } else {
-                activateNameInput();
-                fetchJudgeList();
+                const autoLoad = activateNameInput();
+                updateConnState('SDK未読込');
+                if (autoLoad) fetchJudgeList();
             }
         };
 
-        // PCブラウザ版など、WOFF から情報を取得できない環境向け
+        // PCブラウザ版など、WOFF から情報を取得できない環境向け。
+        // 保存済みの合言葉があれば、そのまま一覧を読みにいく（社長の手間を増やさないため）。
+        // 戻り値は「自動で一覧を取得してよいか」。
         function activateNameInput() {
-            const box = document.getElementById('judgeNameBox');
-            const input = document.getElementById('judgeNameInput');
-            input.value = loadStoredJudgeName();
+            document.getElementById('judgeNameInput').value = loadStored(JUDGE_NAME_STORAGE_KEY);
+            const storedKey = loadStored(ADMIN_KEY_STORAGE_KEY);
+            document.getElementById('adminKeyInput').value = storedKey;
+            document.getElementById('judgeNameBox').classList.remove('hidden');
+            return !!storedKey;
+        }
+
+        // ---------- 切り分け用 ----------
+
+        // WOFF連携の成否を画面下部に表示する。
+        // userId が取れていない状態では、GAS側の承認者チェックは行われない（素通りする）。
+        function updateConnState(note) {
+            const el = document.getElementById('connState');
+            if (judgeUser.id) {
+                const tail = judgeUser.id.slice(-4);
+                el.textContent = `WOFF連携: 成功（userId 末尾 ${tail}） / 承認者IDで照合`;
+                el.className = 'text-xs text-green-700';
+            } else {
+                el.textContent = `WOFF連携: 未取得${note ? '（' + note + '）' : ''} / 合言葉で照合`;
+                el.className = 'text-xs text-orange-700';
+            }
+        }
+
+        async function runDiagnostics() {
+            const box = document.getElementById('diagResult');
             box.classList.remove('hidden');
+            box.textContent = '確認中...';
+            const lines = [];
+            lines.push(`画面: president_approve_ver2`);
+            lines.push(`WOFF連携: ${judgeUser.id ? '成功' : '未取得'}`);
+            lines.push(`userId: ${judgeUser.id ? judgeUser.id.slice(-4) + '（末尾4桁）' : '(なし)'}`);
+            lines.push(`判断者名: ${resolveJudgeName() || '(未入力)'}`);
+            lines.push(`合言葉: ${judgeUser.id ? '(不要)' : (resolveAdminKey() ? '入力あり' : '(未入力)')}`);
+            lines.push(`WOFF_ID: ${WOFF_ID}`);
+            lines.push(`GAS_URL 末尾: ...${GAS_URL.slice(-12)}`);
+            lines.push(`UA: ${navigator.userAgent}`);
+            lines.push('');
+            try {
+                const json = await fetchGasPost('ping', {});
+                lines.push('--- GAS側 ---');
+                if (json.status === 'success') {
+                    Object.entries(json.data).forEach(([k, v]) => lines.push(`${k}: ${JSON.stringify(v)}`));
+                } else {
+                    lines.push(`応答: ${JSON.stringify(json)}`);
+                }
+            } catch (e) {
+                lines.push('--- GAS側: 到達できず ---');
+                lines.push(e.message);
+            }
+            box.textContent = lines.join('\n');
         }
 
         // ---------- 一覧取得 ----------
@@ -148,12 +284,28 @@
             showLoading(true, "未判断リストを取得中...");
             try {
                 // 判断待ちの絞り込みと入場日順の並べ替えはGAS側で行う
-                const json = await fetchGasPost('getPendingList', {});
+                const json = await fetchGasPost('getPendingList', authPayload());
                 if (json.status !== 'success') throw new Error(json.message);
+
+                // ここまで来たら合言葉は正しい。次回のために合言葉と判断者名を保存する。
+                if (!judgeUser.id) {
+                    const key = resolveAdminKey();
+                    if (key) saveStored(ADMIN_KEY_STORAGE_KEY, key);
+                    const name = resolveJudgeName();
+                    if (name) saveStored(JUDGE_NAME_STORAGE_KEY, name);
+                }
+                showKeyMessage('');
+
                 renderList(json.data || []);
             } catch (e) {
                 container.innerHTML = "";
-                errorBox.classList.remove('hidden');
+                document.getElementById('emptyState').classList.add('hidden');
+                if (handleAuthError(e.message)) {
+                    // 合言葉の入れ直しを促すだけ。エラー表示は出さない。
+                } else {
+                    document.getElementById('errorDetail').textContent = e.message || String(e);
+                    errorBox.classList.remove('hidden');
+                }
             } finally {
                 showLoading(false);
             }
@@ -243,6 +395,12 @@
                 return;
             }
 
+            if (!judgeUser.id && !resolveAdminKey()) {
+                alert("合言葉を入力してください。");
+                document.getElementById('adminKeyInput').focus();
+                return;
+            }
+
             const textarea = document.getElementById(`comment-${uid}`);
             const comment = textarea ? textarea.value.trim() : '';
 
@@ -258,16 +416,18 @@
             setButtonsDisabled(true);
             showLoading(true, "処理中...");
             try {
-                const json = await fetchGasPost('judge', {
+                const json = await fetchGasPost('judge', Object.assign({
                     uid: uid,
                     judgment: judgment,
                     comment: comment,
-                    execUserId: judgeUser.id,   // WOFF経由のときのみ値が入る
                     execUserName: judgeName
-                });
+                }, authPayload()));
                 if (json.status !== 'success') throw new Error(json.message);
 
-                if (!judgeUser.name) saveJudgeName(judgeName);
+                if (!judgeUser.id) {
+                    saveStored(JUDGE_NAME_STORAGE_KEY, judgeName);
+                    saveStored(ADMIN_KEY_STORAGE_KEY, resolveAdminKey());
+                }
 
                 alert(json.warning
                     ? `${judgment}処理が完了しました。\n\n${json.warning}`
@@ -275,7 +435,11 @@
 
                 await fetchJudgeList();
             } catch (e) {
-                alert("エラーが発生しました: " + e.message);
+                if (handleAuthError(e.message)) {
+                    alert("合言葉が違います。入力し直してください。");
+                } else {
+                    alert("エラーが発生しました: " + e.message);
+                }
             } finally {
                 isProcessing = false;
                 setButtonsDisabled(false);
